@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"ksvm/pkg/daemon"
 	"ksvm/pkg/kvm"
 )
 
@@ -24,8 +25,10 @@ func main() {
 }
 
 var shellToken string
+var portMap string
 
 func init() {
+	rootCmd.PersistentFlags().StringVarP(&portMap, "port", "P", "", "Multi-service port mapping (e.g. w:8080 m:5050)")
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(stopCmd)
@@ -43,6 +46,7 @@ func init() {
 	rootCmd.AddCommand(umountCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(purgeCmd)
+	rootCmd.AddCommand(daemonCmd)
 
 	shellCmd.Flags().StringVarP(&shellToken, "token", "t", "", "Custom session token for Web UI hook")
 	purgeCmd.Flags().BoolVarP(&purgeForce, "force", "f", false, "Force purge without confirmation")
@@ -423,6 +427,42 @@ var versionCmd = &cobra.Command{
 }
 
 var purgeForce bool
+
+var daemonCmd = &cobra.Command{
+	Use:   "daemon",
+	Short: "Run ksvm in daemon mode with Web UI and Gateway",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg := parsePortMap(portMap)
+		if cfg.WebPort == "" {
+			cfg.WebPort = "8080"
+		}
+		if cfg.MuxPort == "" {
+			cfg.MuxPort = "5050"
+		}
+
+		if err := daemon.Start(cfg); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
+func parsePortMap(pm string) daemon.Config {
+	cfg := daemon.Config{}
+	parts := strings.Fields(pm)
+	for _, p := range parts {
+		kv := strings.Split(p, ":")
+		if len(kv) == 2 {
+			switch kv[0] {
+			case "w":
+				cfg.WebPort = kv[1]
+			case "m":
+				cfg.MuxPort = kv[1]
+			}
+		}
+	}
+	return cfg
+}
 
 var purgeCmd = &cobra.Command{
 	Use:   "purge",

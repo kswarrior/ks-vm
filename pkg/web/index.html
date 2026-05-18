@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, dvh=100">
+    <title>ksvm | Cyber Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="cyber-bg">
+    <header class="sticky-header glassmorphic">
+        <div class="logo">KSVM_SYS</div>
+        <button id="menu-toggle" class="hamburger">
+            <span></span><span></span><span></span>
+        </button>
+    </header>
+
+    <div class="container">
+        <aside id="sidebar" class="collapsing-sidebar glassmorphic">
+            <nav>
+                <ul>
+                    <li class="active" data-tab="instances">INSTANCES</li>
+                    <li data-tab="monitor">MONITOR</li>
+                    <li data-tab="images">IMAGES</li>
+                    <li data-tab="users">USERS</li>
+                    <li data-tab="log">LOG</li>
+                </ul>
+            </nav>
+        </aside>
+
+        <main id="content">
+            <div id="instances" class="tab-content active">
+                <h2>Active Instances</h2>
+                <div class="grid" id="instance-grid">
+                    <!-- Dynamic Cards -->
+                </div>
+            </div>
+            <!-- Other tabs elided for brevity -->
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

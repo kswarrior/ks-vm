@@ -1,0 +1,83 @@
+:root {
+    --bg-color: #050505;
+    --accent-color: #00f2ff;
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+body.cyber-bg {
+    background-color: var(--bg-color);
+    color: #fff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    overflow-x: hidden;
+    height: 100dvh;
+}
+
+.glassmorphic {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+}
+
+.sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    justify-content: space-between;
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
+}
+
+.logo {
+    font-weight: bold;
+    letter-spacing: 2px;
+    color: var(--accent-color);
+    text-shadow: 0 0 5px var(--accent-color);
+}
+
+.container {
+    display: flex;
+    height: calc(100dvh - 60px);
+}
+
+.collapsing-sidebar {
+    width: 250px;
+    transition: width 0.3s;
+}
+
+@media (max-width: 768px) {
+    .collapsing-sidebar {
+        width: 0;
+        position: fixed;
+        left: 0;
+        top: 60px;
+        height: 100%;
+        z-index: 999;
+    }
+    .collapsing-sidebar.open {
+        width: 200px;
+    }
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    padding: 20px;
+}
+
+.card {
+    padding: 20px;
+    border-radius: 10px;
+    transition: transform 0.2s;
+    box-shadow: 0 0 10px rgba(0, 242, 255, 0.1);
+}
+
+.card:hover {
+    transform: scale(1.02);
+    box-shadow: 0 0 15px var(--accent-color);
+}
