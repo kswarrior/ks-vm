@@ -4,12 +4,19 @@ import (
 	"libvirt.org/go/libvirtxml"
 )
 
+// SharedFS holds configuration for a shared filesystem.
+type SharedFS struct {
+	SourceDir string
+	TargetDir string
+}
+
 // VMConfig holds the configuration for a virtual machine.
 type VMConfig struct {
-	Name     string
-	MemoryMB uint
-	CPUs     uint
-	DiskPath string
+	Name              string
+	MemoryMB          uint
+	CPUs              uint
+	DiskPath          string
+	SharedFilesystems []SharedFS
 }
 
 // GenerateDomainXML generates the libvirt XML for a domain.
@@ -39,6 +46,7 @@ func GenerateDomainXML(config VMConfig) (string, error) {
 		OnReboot:   "restart",
 		OnCrash:    "destroy",
 		Devices: &libvirtxml.DomainDeviceList{
+			Filesystems: generateFilesystems(config.SharedFilesystems),
 			Disks: []libvirtxml.DomainDisk{
 				{
 					Device: "disk",
@@ -77,10 +85,42 @@ func GenerateDomainXML(config VMConfig) (string, error) {
 					},
 				},
 			},
+			Channels: []libvirtxml.DomainChannel{
+				{
+					Source: &libvirtxml.DomainChardevSource{
+						UNIX: &libvirtxml.DomainChardevSourceUNIX{
+							Mode: "bind",
+						},
+					},
+					Target: &libvirtxml.DomainChannelTarget{
+						VirtIO: &libvirtxml.DomainChannelTargetVirtIO{
+							Name: "org.qemu.guest_agent.0",
+						},
+					},
+				},
+			},
 		},
 	}
 
 	return domain.Marshal()
+}
+
+func generateFilesystems(shared []SharedFS) []libvirtxml.DomainFilesystem {
+	var fss []libvirtxml.DomainFilesystem
+	for _, s := range shared {
+		fss = append(fss, libvirtxml.DomainFilesystem{
+			AccessMode: "passthrough",
+			Source: &libvirtxml.DomainFilesystemSource{
+				Mount: &libvirtxml.DomainFilesystemSourceMount{
+					Dir: s.SourceDir,
+				},
+			},
+			Target: &libvirtxml.DomainFilesystemTarget{
+				Dir: s.TargetDir,
+			},
+		})
+	}
+	return fss
 }
 
 func uintPtr(u uint) *uint {

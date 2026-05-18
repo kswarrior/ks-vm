@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"ksvm/pkg/kvm"
 )
@@ -22,12 +24,53 @@ func main() {
 	}
 }
 
+var shellToken string
+
 func init() {
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(addCmd)
+	rootCmd.AddCommand(imageCmd)
+	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(infoCmd)
+	rootCmd.AddCommand(shellCmd)
+	rootCmd.AddCommand(execCmd)
+	rootCmd.AddCommand(restartCmd)
+	rootCmd.AddCommand(cpCmd)
+	rootCmd.AddCommand(mountCmd)
+	rootCmd.AddCommand(umountCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(purgeCmd)
+
+	shellCmd.Flags().StringVarP(&shellToken, "token", "t", "", "Custom session token for Web UI hook")
+	purgeCmd.Flags().BoolVarP(&purgeForce, "force", "f", false, "Force purge without confirmation")
+}
+
+var deployCmd = &cobra.Command{
+	Use:   "deploy <name> <image>",
+	Short: "Deploy a new VM from a base image",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		image := args[1]
+
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		fmt.Printf("Deploying VM %s with image %s...\n", name, image)
+		if err := manager.Deploy(name, image); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("VM %s deployed successfully.\n", name)
+	},
 }
 
 var launchCmd = &cobra.Command{
@@ -110,24 +153,149 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Printf("%-20s %-10s %-20s\n", "NAME", "STATUS", "IP ADDRESSES")
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"Name", "Status", "IP Addresses"})
+		table.SetBorder(false)
+		table.SetColumnSeparator("")
+		table.SetHeaderLine(false)
+		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+		table.SetAlignment(tablewriter.ALIGN_LEFT)
+
 		for _, vm := range vms {
 			ips := strings.Join(vm.IPs, ", ")
 			if ips == "" {
 				ips = "-"
 			}
-			fmt.Printf("%-20s %-10s %-20s\n", vm.Name, vm.Status, ips)
+			table.Append([]string{vm.Name, vm.Status, ips})
 		}
+		table.Render()
 	},
 }
 
-var deployCmd = &cobra.Command{
-	Use:   "deploy <name> <image>",
-	Short: "Deploy a new VM from a base image",
+var addCmd = &cobra.Command{
+	Use:   "add <name> <url_or_path>",
+	Short: "Register a base cloud image",
 	Args:  cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		name := args[0]
-		image := args[1]
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.AddImage(args[0], args[1]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("Image %s registered.\n", args[0])
+	},
+}
+
+var imageCmd = &cobra.Command{
+	Use:   "image",
+	Short: "List all registered base images",
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		images, err := manager.ListImages()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"Name", "Size", "Added At"})
+		table.SetBorder(false)
+		table.SetColumnSeparator("")
+		table.SetHeaderLine(false)
+		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+		table.SetAlignment(tablewriter.ALIGN_LEFT)
+
+		for _, img := range images {
+			table.Append([]string{
+				img.Name,
+				strconv.FormatInt(img.Size, 10),
+				img.AddedAt.Format("2006-01-02 15:04"),
+			})
+		}
+		table.Render()
+	},
+}
+
+var removeCmd = &cobra.Command{
+	Use:   "remove <name>",
+	Short: "Delete a base image from the local storage pool",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.RemoveImage(args[0]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("Image %s removed.\n", args[0])
+	},
+}
+
+var infoCmd = &cobra.Command{
+	Use:   "info <name>",
+	Short: "Fetch and display detailed VM resource metadata",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		info, err := manager.Info(args[0])
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetAlignment(tablewriter.ALIGN_LEFT)
+		table.SetBorder(false)
+		table.SetCenterSeparator("")
+		table.SetColumnSeparator(":")
+		table.SetRowSeparator("")
+		table.SetHeaderLine(false)
+
+		table.Append([]string{"NAME", info.Name})
+		table.Append([]string{"STATUS", info.Status})
+		table.Append([]string{"CPUs", strconv.Itoa(int(info.CPUs))})
+		table.Append([]string{"MEMORY", fmt.Sprintf("%d MiB", info.MemoryMB)})
+		table.Append([]string{"DISK USAGE", fmt.Sprintf("%d bytes", info.DiskUsage)})
+		table.Append([]string{"IPs", strings.Join(info.IPs, ", ")})
+
+		table.Render()
+	},
+}
+
+var shellCmd = &cobra.Command{
+	Use:   "shell <name>",
+	Short: "Establish an interactive terminal session inside the guest VM",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		if shellToken != "" {
+			fmt.Printf("Establishing session using token: %s\n", shellToken)
+			// Prepare the stream connection path for future WebSocket adapter
+			fmt.Printf("Stream path: /var/run/libvirt/ksvm-%s.sock\n", args[0])
+			return
+		}
 
 		manager, err := kvm.NewManager()
 		if err != nil {
@@ -136,11 +304,172 @@ var deployCmd = &cobra.Command{
 		}
 		defer manager.Close()
 
-		fmt.Printf("Deploying VM %s with image %s...\n", name, image)
-		if err := manager.Deploy(name, image); err != nil {
+		if err := manager.Shell(args[0]); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
 		}
-		fmt.Printf("VM %s deployed successfully.\n", name)
+	},
+}
+
+var execCmd = &cobra.Command{
+	Use:   "exec <name> -- <command> [args...]",
+	Short: "Run a non-interactive shell command inside the guest VM",
+	Args:  cobra.MinimumNArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		resp, err := manager.Exec(args[0], args[1:])
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Println(resp)
+	},
+}
+
+var restartCmd = &cobra.Command{
+	Use:   "restart <name>",
+	Short: "Reboot the guest VM gracefully",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.Restart(args[0]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("VM %s restarted.\n", args[0])
+	},
+}
+
+var cpCmd = &cobra.Command{
+	Use:   "cp <local_file> <name>:<guest_path>",
+	Short: "Copy a file from host to guest",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		parts := strings.Split(args[1], ":")
+		if len(parts) != 2 {
+			fmt.Println("Error: target must be in format <name>:<guest_path>")
+			return
+		}
+		name, guestPath := parts[0], parts[1]
+
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.Copy(name, args[0], guestPath); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("File %s copied to %s:%s\n", args[0], name, guestPath)
+	},
+}
+
+var mountCmd = &cobra.Command{
+	Use:   "mount <name> <local_path> <vm_path>",
+	Short: "Share a host directory with the guest",
+	Args:  cobra.ExactArgs(3),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.Mount(args[0], args[1], args[2]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("Directory %s mounted to VM %s at %s\n", args[1], args[0], args[2])
+	},
+}
+
+var umountCmd = &cobra.Command{
+	Use:   "umount <name> <vm_path>",
+	Short: "Detach a shared directory from the VM",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.Umount(args[0], args[1]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("Directory %s unmounted from VM %s\n", args[1], args[0])
+	},
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Display version information",
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		v, err := manager.Version()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		fmt.Printf("ksvm version:    %s\n", v.KSVM)
+		fmt.Printf("libvirt version: %s\n", v.Libvirt)
+		fmt.Printf("QEMU version:    %s\n", v.QEMU)
+	},
+}
+
+var purgeForce bool
+
+var purgeCmd = &cobra.Command{
+	Use:   "purge",
+	Short: "Reset the entire host virtualization ecosystem",
+	Run: func(cmd *cobra.Command, args []string) {
+		if !purgeForce {
+			fmt.Print("This will destroy ALL VMs and images. Are you sure? [y/N]: ")
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) != "y" {
+				fmt.Println("Purge aborted.")
+				return
+			}
+		}
+
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		fmt.Println("Purging all VMs and images...")
+		if err := manager.Purge(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Println("Purge complete.")
 	},
 }
