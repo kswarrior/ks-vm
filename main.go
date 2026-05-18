@@ -3,10 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
+	"text/tabwriter"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"ksvm/pkg/kvm"
 )
@@ -153,22 +152,16 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Name", "Status", "IP Addresses"})
-		table.SetBorder(false)
-		table.SetColumnSeparator("")
-		table.SetHeaderLine(false)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "NAME\tSTATUS\tIP ADDRESSES")
 		for _, vm := range vms {
 			ips := strings.Join(vm.IPs, ", ")
 			if ips == "" {
 				ips = "-"
 			}
-			table.Append([]string{vm.Name, vm.Status, ips})
+			fmt.Fprintf(w, "%s\t%s\t%s\n", vm.Name, vm.Status, ips)
 		}
-		table.Render()
+		w.Flush()
 	},
 }
 
@@ -209,22 +202,16 @@ var imageCmd = &cobra.Command{
 			return
 		}
 
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Name", "Size", "Added At"})
-		table.SetBorder(false)
-		table.SetColumnSeparator("")
-		table.SetHeaderLine(false)
-		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "NAME\tSIZE\tADDED AT")
 		for _, img := range images {
-			table.Append([]string{
+			fmt.Fprintf(w, "%s\t%d\t%s\n",
 				img.Name,
-				strconv.FormatInt(img.Size, 10),
+				img.Size,
 				img.AddedAt.Format("2006-01-02 15:04"),
-			})
+			)
 		}
-		table.Render()
+		w.Flush()
 	},
 }
 
@@ -266,22 +253,14 @@ var infoCmd = &cobra.Command{
 			return
 		}
 
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetAlignment(tablewriter.ALIGN_LEFT)
-		table.SetBorder(false)
-		table.SetCenterSeparator("")
-		table.SetColumnSeparator(":")
-		table.SetRowSeparator("")
-		table.SetHeaderLine(false)
-
-		table.Append([]string{"NAME", info.Name})
-		table.Append([]string{"STATUS", info.Status})
-		table.Append([]string{"CPUs", strconv.Itoa(int(info.CPUs))})
-		table.Append([]string{"MEMORY", fmt.Sprintf("%d MiB", info.MemoryMB)})
-		table.Append([]string{"DISK USAGE", fmt.Sprintf("%d bytes", info.DiskUsage)})
-		table.Append([]string{"IPs", strings.Join(info.IPs, ", ")})
-
-		table.Render()
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "NAME:\t%s\n", info.Name)
+		fmt.Fprintf(w, "STATUS:\t%s\n", info.Status)
+		fmt.Fprintf(w, "CPUs:\t%d\n", info.CPUs)
+		fmt.Fprintf(w, "MEMORY:\t%d MiB\n", info.MemoryMB)
+		fmt.Fprintf(w, "DISK USAGE:\t%d bytes\n", info.DiskUsage)
+		fmt.Fprintf(w, "IPs:\t%s\n", strings.Join(info.IPs, ", "))
+		w.Flush()
 	},
 }
 
@@ -292,7 +271,8 @@ var shellCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		if shellToken != "" {
 			fmt.Printf("Establishing session using token: %s\n", shellToken)
-			// Prepare the stream connection path for future WebSocket adapter
+			// TODO: Bridge this into a permanent web WebSocket terminal connection.
+			// The token will be used to authenticate the stream access via the web adapter.
 			fmt.Printf("Stream path: /var/run/libvirt/ksvm-%s.sock\n", args[0])
 			return
 		}
