@@ -50,12 +50,12 @@ func Run(name, rootDir string, args []string) error {
 		return fmt.Errorf("failed to mount proc: %v", err)
 	}
 
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	path, err := exec.LookPath(args[0])
+	if err != nil {
+		return fmt.Errorf("command %s not found: %v", args[0], err)
+	}
 
-	return cmd.Run()
+	return syscall.Exec(path, args, os.Environ())
 }
 
 // Stop terminates a container process.

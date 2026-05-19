@@ -211,10 +211,11 @@ func (m *Manager) Launch(name string) error {
 			return fmt.Errorf("container %s is already running", name)
 		}
 
-		go container.Run(name, destDir, []string{"/bin/sh"})
+		// We use a long-running process to keep the container namespaces alive
+		go container.Run(name, destDir, []string{"/usr/bin/tail", "-f", "/dev/null"})
 
 		// Wait a bit for the container to start and create the pid file
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
@@ -571,6 +572,10 @@ func (m *Manager) Shell(name string) error {
 					errChan <- sErr
 					return
 				}
+			}
+			if err == io.EOF {
+				errChan <- nil
+				return
 			}
 			if err != nil {
 				errChan <- err
