@@ -48,7 +48,7 @@ func Start(cfg Config) error {
 	}
 
 	// 2. Setup Mux
-	mux := NewMux(cfg.MuxPort)
+	mux := NewMux(cfg.MuxPort, manager)
 
 	// Start servers in goroutines
 	go func() {

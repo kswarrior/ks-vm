@@ -129,7 +129,12 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 			return err
 		}
 
-		target := filepath.Join(dest, header.Name)
+		// Sanitize path to prevent Zip Slip (Path Traversal)
+		target := filepath.Join(dest, filepath.Clean(header.Name))
+		if !strings.HasPrefix(target, filepath.Clean(dest)) {
+			continue // Skip files outside of destination
+		}
+
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {

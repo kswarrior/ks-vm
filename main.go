@@ -512,6 +512,7 @@ var resumeCmd = &cobra.Command{
 var internalRunCmd = &cobra.Command{
 	Use:    "internal-run <name> <dir>",
 	Hidden: true,
+	Args:   cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		container.Run(args[0], args[1], args[2:])
 	},

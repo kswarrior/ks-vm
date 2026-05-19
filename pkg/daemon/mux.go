@@ -5,15 +5,18 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
+	"ksvm/pkg/kvm"
 )
 
 // Mux handles routing internal VM streams.
 type Mux struct {
 	port string
+	manager *kvm.Manager
 }
 
-func NewMux(port string) *Mux {
-	return &Mux{port: port}
+func NewMux(port string, m *kvm.Manager) *Mux {
+	return &Mux{port: port, manager: m}
 }
 
 func (m *Mux) Start() error {
@@ -36,20 +39,45 @@ func (m *Mux) Start() error {
 func (m *Mux) handleConn(conn net.Conn) {
 	defer conn.Close()
 
-	// Basic routing/multiplexing based on initial data
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
-	if err != nil {
+	if err != nil { return }
+
+	data := string(buf[:n])
+	targetVM := ""
+	targetPort := "22"
+
+	lines := strings.Split(data, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "X-KSVM-Target:") {
+			parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(line, "X-KSVM-Target:")), ":")
+			if len(parts) >= 1 { targetVM = parts[0] }
+			if len(parts) >= 2 { targetPort = parts[1] }
+		}
+	}
+
+	if targetVM == "" {
+		io.WriteString(conn, "HTTP/1.1 400 Bad Request\r\n\r\nMissing X-KSVM-Target header")
 		return
 	}
 
-	header := string(buf[:n])
-	// Example: Bridge to internal target VM based on a header or path
-	if strings.Contains(header, "X-KSVM-Target:") {
-		// Implement bridging logic here
-		fmt.Println("Bridging connection based on header...")
+	info, err := m.manager.Info(targetVM)
+	if err != nil || len(info.IPs) == 0 {
+		io.WriteString(conn, "HTTP/1.1 404 Not Found\r\n\r\nVM not found or has no IP")
+		return
 	}
 
-	// Placeholder for stream proxying
-	io.WriteString(conn, "KSVM Gateway Multiplexer v0.1\n")
+	targetConn, err := net.DialTimeout("tcp", net.JoinHostPort(info.IPs[0], targetPort), 5*time.Second)
+	if err != nil {
+		io.WriteString(conn, "HTTP/1.1 502 Bad Gateway\r\n\r\nFailed to connect to guest")
+		return
+	}
+	defer targetConn.Close()
+
+	io.WriteString(conn, "KSVM Mux: Connected to "+targetVM+". Bridging streams...\n")
+
+	done := make(chan bool, 2)
+	go func() { io.Copy(targetConn, conn); done <- true }()
+	go func() { io.Copy(conn, targetConn); done <- true }()
+	<-done
 }

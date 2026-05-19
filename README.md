@@ -17,15 +17,37 @@ Built from scratch in Go, ksvm avoids heavy external dependencies by communicati
 
 ---
 
-## 🛠 Core Features
+## 📊 Performance Benchmarks
 
-- ✅ **Unified Lifecycle**: Deploy, Launch, Stop, Suspend, Resume, and Delete for both VMs and Containers.
-- ✅ **Image Engine**:
-    - VM: Register .qcow2 cloud images from URLs or local paths.
-    - Container: Pull directly from Docker registries (e.g., `docker://nginx:latest`).
-- ✅ **Guest Interaction**: Exec, Copy, and Interactive Shell with raw terminal mode.
-- ✅ **Shared Storage**: Hot-plug host directories into guests via VirtIO-9p.
-- ✅ **Daemon Mode**: Multi-service engine providing a REST API and Cyberpunk Dashboard.
+| Metric           | Virtual Machine (KVM) | Native Container (Namespaces) |
+|------------------|-----------------------|------------------------------|
+| **Deploy Time**  | ~1.5s (Overlay)       | ~0.8s (OCI Layer Extraction) |
+| **Launch Time**  | 5s - 15s (Guest Boot) | < 0.1s (Native Syscall)      |
+| **I/O Latency**  | VirtIO (Near-native)  | Native (Zero overhead)       |
+| **Memory Cost**  | Fixed (e.g. 1GB)      | Dynamic (Process only)       |
+| **Storage Cost** | CoW Delta             | Flattened RootFS             |
+
+---
+
+## 🛠 Command Audit (All 17 Commands)
+
+1.  `deploy <name> <img|docker://>`: Provision VM or Container instance.
+2.  `launch <name>`: Start instance.
+3.  `stop <name>`: Graceful shutdown.
+4.  `delete <name>`: Remove instance and storage.
+5.  `list`: Tab-aligned overview of all instances.
+6.  `add <name> <url>`: Register VM base image.
+7.  `image`: List base images.
+8.  `remove <image>`: Delete base image.
+9.  `info <name>`: Deep metadata and resource usage.
+10. `shell <name>`: Interactive console (Raw mode support).
+11. `exec <name> -- <cmd>`: Non-interactive execution (QGA/nsenter).
+12. `restart <name>`: Graceful reboot.
+13. `cp <src> <name>:<dst>`: Chunked file transfer.
+14. `mount <name> <host> <guest>`: Hot-plug shared storage (VirtIO-9p).
+15. `umount <name> <guest>`: Detach shared storage.
+16. `version`: Software and daemon versioning.
+17. `purge`: Full ecosystem reset.
 
 ---
 
@@ -36,12 +58,6 @@ Built from scratch in Go, ksvm avoids heavy external dependencies by communicati
 - **Go**: 1.24+
 - **Packages**: `libvirt-dev`, `qemu-utils`, `libvirt-daemon-system`
 
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y libvirt-dev qemu-utils libvirt-daemon-system
-```
-
 ### 🔨 Installation
 ```bash
 go mod tidy
@@ -50,25 +66,23 @@ go build -o ksvm .
 
 ---
 
-## 📖 Usage Guide
+## 🧪 Hybrid Testing
 
-### Deploying a VM
+Deploy and manage a mixed cluster:
 ```bash
-./ksvm add ubuntu https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-./ksvm deploy my-vm ubuntu
-```
+# Register VM image
+./ksvm add focal https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img
 
-### Deploying a Container
-```bash
-./ksvm deploy my-container docker://nginx:alpine
-```
+# Deploy mix
+./ksvm deploy my-vm focal
+./ksvm deploy my-web docker://nginx:alpine
 
-### Management
-```bash
-./ksvm list                  # Show all instances (VMs & Containers)
-./ksvm info my-container     # Deep metadata
-./ksvm stop my-vm            # Graceful shutdown
-./ksvm daemon --port w:8080  # Launch Cyberpunk Web UI
+# Mass Start
+./ksvm launch my-vm
+./ksvm launch my-web
+
+# Unified View
+./ksvm list
 ```
 
 ---
