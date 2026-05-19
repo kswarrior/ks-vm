@@ -36,10 +36,32 @@ func Start(cfg Config) error {
 
 	// Web UI
 	r.GET("/", func(c *gin.Context) {
-		c.FileFromFS("index.html", http.FS(web.Assets))
+		data, err := web.Assets.ReadFile("index.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
-	r.GET("/static/*filepath", func(c *gin.Context) {
-		c.FileFromFS(c.Param("filepath"), http.FS(web.Assets))
+
+	r.GET("/static/:filename", func(c *gin.Context) {
+		filename := c.Param("filename")
+		data, err := web.Assets.ReadFile(filename)
+		if err != nil {
+			c.String(http.StatusNotFound, "Not Found")
+			return
+		}
+
+		contentType := "text/plain"
+		if len(filename) > 3 {
+			switch filename[len(filename)-3:] {
+			case ".js":
+				contentType = "application/javascript"
+			case "css":
+				contentType = "text/css"
+			}
+		}
+		c.Data(http.StatusOK, contentType, data)
 	})
 
 	webServer := &http.Server{
