@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -164,28 +165,66 @@ func (m *Manager) DeployContainer(name, image string) error {
 	return nil
 }
 
+func (m *Manager) isContainerRunning(name string) (bool, int) {
+	destDir := filepath.Join(BaseDir, "containers", name)
+	pidPath := filepath.Join(destDir, "pid")
+	pidData, err := os.ReadFile(pidPath)
+	if err != nil {
+		return false, 0
+	}
+	var pid int
+	fmt.Sscanf(string(pidData), "%d", &pid)
+	if pid <= 0 {
+		return false, 0
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false, 0
+	}
+	// On Unix, FindProcess always succeeds. Use signal 0 to check existence.
+	err = process.Signal(syscall.Signal(0))
+	if err != nil {
+		return false, 0
+	}
+	return true, pid
+}
+
 // Launch starts a stopped VM or Container.
 func (m *Manager) Launch(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		isActive, err := domain.IsActive()
-		if err != nil { return err }
-		if isActive { return fmt.Errorf("domain %s is already running", name) }
+		if err != nil {
+			return err
+		}
+		if isActive {
+			return fmt.Errorf("domain %s is already running", name)
+		}
 		return domain.Create()
 	}
 
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if _, err := os.Stat(destDir); err == nil {
-		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err != nil { return err }
-		var meta map[string]string
-		if err := json.Unmarshal(metaData, &meta); err != nil { return err }
-		if meta["status"] == "running" { return fmt.Errorf("container %s is already running", name) }
+		running, _ := m.isContainerRunning(name)
+		if running {
+			return fmt.Errorf("container %s is already running", name)
+		}
 
 		go container.Run(name, destDir, []string{"/bin/sh"})
-		meta["status"] = "running"
-		metaJSON, _ := json.Marshal(meta)
-		os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+
+		// Wait a bit for the container to start and create the pid file
+		time.Sleep(100 * time.Millisecond)
+
+		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
+		if err == nil {
+			var meta map[string]string
+			if err := json.Unmarshal(metaData, &meta); err == nil {
+				meta["status"] = "running"
+				metaJSON, _ := json.Marshal(meta)
+				os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+			}
+		}
 		return nil
 	}
 	return fmt.Errorf("instance %s not found", name)
@@ -196,23 +235,35 @@ func (m *Manager) Stop(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		isActive, err := domain.IsActive()
-		if err != nil { return err }
-		if !isActive { return fmt.Errorf("domain %s is not running", name) }
+		if err != nil {
+			return err
+		}
+		if !isActive {
+			return fmt.Errorf("domain %s is not running", name)
+		}
 		return domain.Shutdown()
 	}
 
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if _, err := os.Stat(destDir); err == nil {
-		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err != nil { return err }
-		var meta map[string]string
-		if err := json.Unmarshal(metaData, &meta); err != nil { return err }
-		if meta["status"] != "running" { return fmt.Errorf("container %s is not running", name) }
+		running, _ := m.isContainerRunning(name)
+		if !running {
+			return fmt.Errorf("container %s is not running", name)
+		}
 
-		if err := container.Stop(destDir); err != nil { return err }
-		meta["status"] = "stopped"
-		metaJSON, _ := json.Marshal(meta)
-		os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+		if err := container.Stop(destDir); err != nil {
+			return err
+		}
+
+		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
+		if err == nil {
+			var meta map[string]string
+			if err := json.Unmarshal(metaData, &meta); err == nil {
+				meta["status"] = "stopped"
+				metaJSON, _ := json.Marshal(meta)
+				os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+			}
+		}
 		return nil
 	}
 	return fmt.Errorf("instance %s not found", name)
@@ -468,42 +519,85 @@ func (m *Manager) Mount(name, hostPath, guestPath string) error {
 func (m *Manager) Shell(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		destDir := filepath.Join(BaseDir, "containers", name)
-		if _, err := os.Stat(destDir); err == nil {
-			pidData, err := os.ReadFile(filepath.Join(destDir, "pid"))
-			if err != nil { return fmt.Errorf("container not running") }
-			cmd := exec.Command("nsenter", "-t", strings.TrimSpace(string(pidData)), "-m", "-u", "-i", "-n", "-p", "/bin/sh")
+		running, pid := m.isContainerRunning(name)
+		if running {
+			cmd := exec.Command("nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "-u", "-i", "-n", "-p", "/bin/sh")
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return cmd.Run()
+		}
+
+		destDir := filepath.Join(BaseDir, "containers", name)
+		if _, err := os.Stat(destDir); err == nil {
+			return fmt.Errorf("container %s is not running", name)
 		}
 		return fmt.Errorf("instance %s not found", name)
 	}
 
-	stream, err := m.conn.NewStream(0)
-	if err != nil { return err }
-	defer stream.Free()
-	if err := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); err != nil { return err }
+	isActive, err := domain.IsActive()
+	if err != nil {
+		return fmt.Errorf("failed to check if domain is active: %v", err)
+	}
+	if !isActive {
+		return fmt.Errorf("domain %s is not running", name)
+	}
 
+	stream, err := m.conn.NewStream(0)
+	if err != nil {
+		return fmt.Errorf("failed to create stream: %v", err)
+	}
+	defer stream.Free()
+
+	// OpenConsole is the way to attach to the serial console
+	if err := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); err != nil {
+		return fmt.Errorf("failed to open console: %v", err)
+	}
+
+	// Make the terminal raw for interactive use
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil { return err }
+	if err != nil {
+		return fmt.Errorf("failed to set raw mode: %v", err)
+	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
+	errChan := make(chan error, 2)
+
+	// Host to VM
 	go func() {
 		buf := make([]byte, 1024)
 		for {
 			n, err := os.Stdin.Read(buf)
-			if err != nil { return }
-			stream.Send(buf[:n])
+			if n > 0 {
+				if _, sErr := stream.Send(buf[:n]); sErr != nil {
+					errChan <- sErr
+					return
+				}
+			}
+			if err != nil {
+				errChan <- err
+				return
+			}
 		}
 	}()
 
-	buf := make([]byte, 1024)
-	for {
-		n, err := stream.Recv(buf)
-		if err != nil { break }
-		os.Stdout.Write(buf[:n])
-	}
-	return nil
+	// VM to Host
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stream.Recv(buf)
+			if n > 0 {
+				if _, wErr := os.Stdout.Write(buf[:n]); wErr != nil {
+					errChan <- wErr
+					return
+				}
+			}
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	return <-errChan
 }
 
 // VersionInfo contains version metadata.
