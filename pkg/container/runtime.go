@@ -30,6 +30,7 @@ func Run(name, rootDir string, args []string) error {
 			}
 			cmd.Stdout = logFile
 			cmd.Stderr = logFile
+			cmd.Stdin = nil // Detach Stdin
 		} else {
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout

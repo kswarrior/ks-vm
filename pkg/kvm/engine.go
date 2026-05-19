@@ -233,7 +233,9 @@ func (m *Manager) Launch(name string) error {
 		defer os.Unsetenv("KSVM_BG")
 
 		// Run setup in a long-running process to keep the container alive
-		if err := container.Run(name, destDir, []string{"/usr/bin/tail", "-f", "/dev/null"}); err != nil {
+		// We use a shell loop as a more universal way to keep the namespace open
+		keepAliveCmd := []string{"/bin/sh", "-c", "while true; do sleep 3600; done"}
+		if err := container.Run(name, destDir, keepAliveCmd); err != nil {
 			return fmt.Errorf("failed to start container: %v", err)
 		}
 
@@ -587,9 +589,14 @@ func (m *Manager) Shell(name string) error {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	fmt.Printf("\rConnected to %s serial console. Press Enter if no prompt appears. Exit with Ctrl+C.\n\r", name)
-	// Trigger a prompt by sending a newline
-	stream.Send([]byte("\n"))
+	fmt.Printf("\r\n--- CONNECTED TO %s SERIAL CONSOLE ---\r\n", strings.ToUpper(name))
+	fmt.Printf("--- Press Enter if no prompt appears. Exit with Ctrl+C ---\r\n\n")
+
+	// Trigger a prompt by sending a newline after a short delay
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		stream.Send([]byte("\n"))
+	}()
 
 	errChan := make(chan error, 2)
 

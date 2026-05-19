@@ -9,7 +9,16 @@ import (
 
 // GenerateCloudInitISO creates a NoCloud ISO containing user-data and meta-data.
 func (m *Manager) GenerateCloudInitISO(rootDir, user, password string) (string, error) {
-	userData := fmt.Sprintf("#cloud-config\nuser: %s\npassword: %s\nchpasswd: { expire: False }\nssh_pwauth: True\n", user, password)
+	userData := fmt.Sprintf(`#cloud-config
+users:
+  - name: %s
+    password: %s
+    lock_passwd: false
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+chpasswd: { expire: False }
+ssh_pwauth: True
+`, user, password)
 	metaData := fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n", filepath.Base(rootDir), filepath.Base(rootDir))
 
 	configDir := filepath.Join(rootDir, "cloud-init")

@@ -171,7 +171,7 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
 		fmt.Fprintln(w, "NAME\tTYPE\tSTATUS\tIP ADDRESSES")
 		for _, vm := range vms {
 			ips := strings.Join(vm.IPs, ", ")
@@ -272,7 +272,7 @@ var infoCmd = &cobra.Command{
 			return
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 15, 1, 2, ' ', 0)
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintf(w, "NAME:\t%s\n", info.Name)
 		fmt.Fprintf(w, "TYPE:\t%s\n", info.Type)
 		fmt.Fprintf(w, "STATUS:\t%s\n", info.Status)
