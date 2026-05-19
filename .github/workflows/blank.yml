@@ -1,0 +1,49 @@
+name: Sync to Main Branch
+
+on:
+  push:
+    branches:
+      - fix-chat-and-upgrade-models-10874489324004267690
+  workflow_dispatch: # Allows manual triggers from the Actions tab
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Essential to fetch full history for merging
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge and Push to Main
+        run: |
+          # 1. Fetch all remote branches to ensure visibility
+          git fetch origin
+          
+          # 2. Checkout the feature branch locally and match remote perfectly
+          git checkout fix-chat-and-upgrade-models-10874489324004267690
+          git reset --hard origin/fix-chat-and-upgrade-models-10874489324004267690
+          
+          # 3. Merge main into it using 'ours' strategy.
+          # This forces Git to accept the feature branch's state (including deletions) 
+          # as the absolute truth, resolving any conflict automatically.
+          git merge origin/main -s ours -m "Syncing main into feature branch (preserving feature state)" --allow-unrelated-histories
+          
+          # 4. Switch back to main and align it with origin
+          git checkout main
+          git reset --hard origin/main
+          
+          # 5. Fast-forward main to the clean merge state we just created
+          git merge fix-chat-and-upgrade-models-10874489324004267690 --ff-only
+          
+          # 6. Push the cleanly synced main branch back up
+          git push origin main
+          
