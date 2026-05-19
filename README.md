@@ -1,77 +1,88 @@
-# ksvm - Native Linux Virtualization Manager
+# ksvm: Native Linux Hybrid Virtualization Manager 🚀
 
-ksvm is a custom, high-performance virtual machine manager CLI tool built from scratch in Go. It talks directly to the local libvirt daemon using KVM and QEMU, providing a native experience for managing virtualization on Linux systems.
+**ksvm** is a high-performance, custom-built management suite for Linux that seamlessly blends **Virtual Machines (KVM/QEMU)** and **Native Containers (Linux Namespaces)** into a single, cohesive experience. 
 
-## Why ksvm?
+Built from scratch in Go, ksvm avoids heavy external dependencies by communicating directly with the `libvirt` daemon for VMs and utilizing native system calls for its lightweight container runtime.
 
-- **Native & Direct**: Unlike tools that wrap other CLI utilities, ksvm communicates directly with `libvirtd` via official Go bindings.
-- **Optimized for Speed**: Uses QCOW2 copy-on-write overlays and backing chains for near-instant VM deployment.
-- **Expert Interaction**: Leverages the QEMU Guest Agent for seamless command execution and file transfers without needing SSH.
-- **Cyberpunk UI**: Includes a responsive, premium Web UI designed with a modern aesthetic for those who prefer graphical management.
-- **Multiplexed Gateway**: Built-in high-speed data multiplexer for routing guest streams and internal services.
+---
 
-## Core Features
+## 💎 Why ksvm is the Best
 
-- **Lifecycle Management**: Deploy, Launch, Stop, Restart, and Delete VMs with ease.
-- **Image Engine**: Register cloud images from URLs or local paths with download progress tracking.
-- **Guest Interaction**: Run commands (`exec`), copy files (`cp`), and access the serial console (`shell`).
-- **Shared Storage**: Hot-plug host directories into running guests using VirtIO-9p.
-- **Daemon Mode**: Run as a service providing a REST API and Cyberpunk Web Dashboard.
-- **System Maintenance**: Version reporting and full environment purge capability.
+- **Hybrid Orchestration**: Deploy a full-weight Virtual Machine or a lightweight OCI Container with the exact same command.
+- **Zero-Latency VM Deployment**: Uses QCOW2 backing chains for instant VM provisioning.
+- **Native Container Runtime**: Implements a custom OCI unpacker and namespace-based runner (PID, NS, UTS) for ultra-lightweight process isolation.
+- **Agent-First Interaction**: Full QEMU Guest Agent integration for command execution and file transfers without SSH.
+- **Cyberpunk Dashboard**: A premium, responsive Web UI featuring real-time monitoring and glassmorphic design.
+- **Multiplexed Gateway**: Built-in high-speed TCP proxy for routing guest streams through a single host entry point.
 
-## Installation
+---
 
-### Dependencies
-- Go 1.25+
-- libvirt-dev
-- qemu-utils
-- libvirt-daemon-system
+## 🛠 Core Features
+
+- ✅ **Unified Lifecycle**: Deploy, Launch, Stop, Suspend, Resume, and Delete for both VMs and Containers.
+- ✅ **Image Engine**: 
+    - VM: Register .qcow2 cloud images from URLs or local paths.
+    - Container: Pull directly from Docker registries (e.g., `docker://nginx:latest`).
+- ✅ **Guest Interaction**: Exec, Copy, and Interactive Shell with raw terminal mode.
+- ✅ **Shared Storage**: Hot-plug host directories into guests via VirtIO-9p.
+- ✅ **Daemon Mode**: Multi-service engine providing a REST API and Cyberpunk Dashboard.
+
+---
+
+## 🚀 Getting Started
+
+### 📦 Prerequisites
+- **OS**: Linux (KVM/QEMU and Namespaces supported)
+- **Go**: 1.24+
+- **Packages**: `libvirt-dev`, `qemu-utils`, `libvirt-daemon-system`
 
 ```bash
+# Ubuntu/Debian
 sudo apt-get update
 sudo apt-get install -y libvirt-dev qemu-utils libvirt-daemon-system
 ```
 
-### Build
+### 🔨 Installation
 ```bash
 go mod tidy
 go build -o ksvm .
 ```
 
-## Usage
+---
 
-### CLI Commands
+## 📖 Usage Guide
+
+### Deploying a VM
 ```bash
-./ksvm deploy <name> <image>    # Deploy a VM instantly
-./ksvm launch <name>           # Start a VM
-./ksvm stop <name>             # Graceful shutdown
-./ksvm exec <name> -- <cmd>    # Run command in guest
-./ksvm shell <name>            # Interactive console
-./ksvm daemon --port w:8080    # Start Web UI
+./ksvm add ubuntu https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+./ksvm deploy my-vm ubuntu
 ```
 
-### Web API Examples
-
-#### List Instances (Node.js)
-```javascript
-const http = require('http');
-http.get('http://localhost:8080/api/v1/instances', (res) => {
-    res.on('data', d => process.stdout.write(d));
-});
+### Deploying a Container
+```bash
+./ksvm deploy my-container docker://nginx:alpine
 ```
 
-#### Get Info (Go)
-```go
-resp, _ := http.Get("http://localhost:8080/api/v1/info/my-vm")
+### Management
+```bash
+./ksvm list                  # Show all instances (VMs & Containers)
+./ksvm info my-container     # Deep metadata
+./ksvm stop my-vm            # Graceful shutdown
+./ksvm daemon --port w:8080  # Launch Cyberpunk Web UI
 ```
 
-## Architecture
+---
 
-- **main.go**: CLI entry point and routing.
-- **pkg/kvm**: Core virtualization engine (XML generation, libvirt actions).
-- **pkg/api**: RESTful API handlers.
+## 🏗 Architecture
+
+- **main.go**: Intelligent CLI routing and entry point.
+- **pkg/kvm**: Native libvirt virtualization engine.
+- **pkg/container**: OCI unpacker and Linux namespace runtime.
+- **pkg/api**: High-performance REST API (Gin).
 - **pkg/daemon**: Concurrent server management and gateway mux.
 - **pkg/web**: Embedded Cyberpunk Web UI assets.
 
-## License
+---
+
+## 📜 License
 MIT
