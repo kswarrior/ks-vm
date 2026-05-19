@@ -17,11 +17,24 @@ func Run(name, rootDir string, args []string) error {
 		cmd := exec.Command("/proc/self/exe", append([]string{"internal-run", name, rootDir}, args...)...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS,
+			Setsid:     true, // Detach from parent
 		}
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
 		cmd.Env = append(os.Environ(), "KSVM_IN_CONTAINER=1")
+
+		// Handle background execution
+		if os.Getenv("KSVM_BG") == "1" {
+			logPath := filepath.Join(rootDir, "container.log")
+			logFile, err := os.Create(logPath)
+			if err != nil {
+				return err
+			}
+			cmd.Stdout = logFile
+			cmd.Stderr = logFile
+		} else {
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+		}
 
 		// Record the PID for management
 		if err := cmd.Start(); err != nil {
@@ -31,7 +44,10 @@ func Run(name, rootDir string, args []string) error {
 		pidPath := filepath.Join(rootDir, "pid")
 		os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644)
 
-		return nil
+		if os.Getenv("KSVM_BG") == "1" {
+			return nil
+		}
+		return cmd.Wait()
 	}
 
 	// Inside the namespace

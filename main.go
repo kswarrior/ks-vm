@@ -514,7 +514,10 @@ var internalRunCmd = &cobra.Command{
 	Hidden: true,
 	Args:   cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		container.Run(args[0], args[1], args[2:])
+		if err := container.Run(args[0], args[1], args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 

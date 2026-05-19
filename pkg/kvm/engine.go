@@ -211,11 +211,21 @@ func (m *Manager) Launch(name string) error {
 			return fmt.Errorf("container %s is already running", name)
 		}
 
-		// We use a long-running process to keep the container namespaces alive
-		go container.Run(name, destDir, []string{"/usr/bin/tail", "-f", "/dev/null"})
+		// Set environment variable to run container in background
+		os.Setenv("KSVM_BG", "1")
+		defer os.Unsetenv("KSVM_BG")
 
-		// Wait a bit for the container to start and create the pid file
-		time.Sleep(200 * time.Millisecond)
+		// Run setup in a long-running process to keep the container alive
+		if err := container.Run(name, destDir, []string{"/usr/bin/tail", "-f", "/dev/null"}); err != nil {
+			return fmt.Errorf("failed to start container: %v", err)
+		}
+
+		// Verify liveness
+		time.Sleep(100 * time.Millisecond)
+		if r, _ := m.isContainerRunning(name); !r {
+			logData, _ := os.ReadFile(filepath.Join(destDir, "container.log"))
+			return fmt.Errorf("container exited immediately. Log: %s", string(logData))
+		}
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
@@ -559,6 +569,10 @@ func (m *Manager) Shell(name string) error {
 		return fmt.Errorf("failed to set raw mode: %v", err)
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	fmt.Printf("\rConnected to %s serial console. Press Enter if no prompt appears. Exit with Ctrl+C.\n\r", name)
+	// Trigger a prompt by sending a newline
+	stream.Send([]byte("\n"))
 
 	errChan := make(chan error, 2)
 
