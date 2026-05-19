@@ -66,16 +66,24 @@
             </div>
 
             <div id="users" class="tab-content">
-                <h2>User Management</h2>
-                <div class="grid">
-                    <div class="card glassmorphic">
-                        <h3>Create User</h3>
-                        <input type="text" placeholder="Username">
-                        <input type="email" placeholder="Email">
-                        <input type="password" placeholder="Password">
-                        <button onclick="alert('User API stubbed')">CREATE</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px;">
+                    <h2>User Management</h2>
+                    <button class="glassmorphic" onclick="showUserForm()">+ ADD USER</button>
+                </div>
+
+                <div id="user-form" class="card glassmorphic" style="display: none; margin: 20px;">
+                    <h3>New User Identity</h3>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <input type="text" id="user-name" placeholder="Username">
+                        <input type="email" id="user-email" placeholder="Email">
+                        <input type="password" id="user-pass" placeholder="Password">
+                        <input type="text" id="user-perms" placeholder="Permissions (e.g. read,write)">
+                        <button onclick="createUser()">INITIALIZE</button>
+                        <button onclick="showUserForm(false)">ABORT</button>
                     </div>
                 </div>
+
+                <div id="user-list" class="grid"></div>
             </div>
 
             <div id="log" class="tab-content">

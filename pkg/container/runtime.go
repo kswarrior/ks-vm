@@ -35,12 +35,20 @@ func Run(name, rootDir string, args []string) error {
 	}
 
 	// Inside the namespace
-	syscall.Sethostname([]byte(name))
-	syscall.Chroot(rootfs)
-	syscall.Chdir("/")
+	if err := syscall.Sethostname([]byte(name)); err != nil {
+		return fmt.Errorf("failed to set hostname: %v", err)
+	}
+	if err := syscall.Chroot(rootfs); err != nil {
+		return fmt.Errorf("failed to chroot: %v", err)
+	}
+	if err := syscall.Chdir("/"); err != nil {
+		return fmt.Errorf("failed to chdir: %v", err)
+	}
 
 	// Mount proc
-	syscall.Mount("proc", "/proc", "proc", 0, "")
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		return fmt.Errorf("failed to mount proc: %v", err)
+	}
 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = os.Stdin

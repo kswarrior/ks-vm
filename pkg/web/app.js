@@ -14,12 +14,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tab.dataset.tab === 'images') fetchImages();
             if (tab.dataset.tab === 'monitor') fetchMonitor();
             if (tab.dataset.tab === 'log') fetchLogs();
+            if (tab.dataset.tab === 'users') fetchUsers();
         });
     });
 
     document.getElementById('menu-toggle').addEventListener('click', () => {
         document.getElementById('sidebar').classList.toggle('open');
     });
+
+    setInterval(() => {
+        const activeTab = document.querySelector('nav li.active').dataset.tab;
+        if (activeTab === 'monitor') fetchMonitor();
+        if (activeTab === 'instances') fetchInstances();
+    }, 5000);
 
     fetchInstances();
 });
@@ -55,16 +62,21 @@ async function fetchInstances() {
         card.className = 'card glassmorphic';
         card.innerHTML = `
             <h3>${vm.Name} <span class="badge badge-${vm.Type}">${vm.Type}</span></h3>
-            <p>Status: ${vm.Status}</p>
-            <p>IPs: ${vm.IPs ? vm.IPs.join(', ') : '-'}</p>
+            <div class="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0;">
+                <div><span style="color:var(--accent-color)">STATUS:</span> ${vm.Status}</div>
+                <div><span style="color:var(--accent-color)">CPU:</span> ${vm.CPUs || 0}</div>
+                <div><span style="color:var(--accent-color)">RAM:</span> ${vm.MemoryMB || 0} MB</div>
+                <div><span style="color:var(--accent-color)">DISK:</span> ${(vm.DiskUsage / 1024 / 1024).toFixed(2)} MB</div>
+            </div>
+            <p><span style="color:var(--accent-color)">IPs:</span> ${vm.IPs ? vm.IPs.join(', ') : '-'}</p>
             <div class="actions">
-                <button onclick="action('launch', '${vm.Name}')">START</button>
-                <button onclick="action('stop', '${vm.Name}')">STOP</button>
-                <button onclick="action('restart', '${vm.Name}')">RESTART</button>
-                <button onclick="action('suspend', '${vm.Name}')">SUSPEND</button>
-                <button onclick="action('resume', '${vm.Name}')">RESUME</button>
-                <button onclick="editInstance('${vm.Name}')">EDIT</button>
-                <button class="danger" onclick="action('delete', '${vm.Name}')">DELETE</button>
+                <button title="Start" onclick="action('launch', '${vm.Name}')">▶</button>
+                <button title="Stop" onclick="action('stop', '${vm.Name}')">■</button>
+                <button title="Restart" onclick="action('restart', '${vm.Name}')">↻</button>
+                <button title="Suspend" onclick="action('suspend', '${vm.Name}')">⏸</button>
+                <button title="Resume" onclick="action('resume', '${vm.Name}')">⏵</button>
+                <button title="Edit" onclick="editInstance('${vm.Name}')">✎</button>
+                <button title="Delete" class="danger" onclick="action('delete', '${vm.Name}')">✖</button>
             </div>
         `;
         grid.appendChild(card);
@@ -91,11 +103,55 @@ async function fetchMonitor() {
     document.getElementById('ram-usage').innerText = data.ram;
 }
 
+function showUserForm(show = true) {
+    document.getElementById('user-form').style.display = show ? 'block' : 'none';
+}
+
+async function createUser() {
+    const username = document.getElementById('user-name').value;
+    const email = document.getElementById('user-email').value;
+    const password = document.getElementById('user-pass').value;
+    const perms = document.getElementById('user-perms').value.split(',');
+
+    await fetch('/api/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password, permissions: perms })
+    });
+    showUserForm(false);
+    fetchUsers();
+}
+
+async function fetchUsers() {
+    const res = await fetch('/api/v1/users');
+    const data = await res.json();
+    const container = document.getElementById('user-list');
+    container.innerHTML = data.map(user => `
+        <div class="card glassmorphic">
+            <h3>${user.username}</h3>
+            <p>Email: ${user.email}</p>
+            <p>Perms: ${user.permissions.join(', ')}</p>
+        </div>
+    `).join('');
+}
+
 async function fetchLogs() {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
     const logContainer = document.getElementById('audit-log');
-    logContainer.innerHTML = data.map(log => `<p>[${log.timestamp}] ${log.user}: ${log.action} ${log.target}</p>`).join('');
+    logContainer.innerHTML = data.map(log => {
+        let undoBtn = '';
+        if (['stop', 'launch', 'deploy'].includes(log.action)) {
+            undoBtn = `<button onclick="undoAction(${log.id})" style="margin-left:10px; padding:2px 5px; font-size:10px; background:rgba(255,0,0,0.2); border:1px solid var(--accent-color); color:var(--accent-color); cursor:pointer;">UNDO</button>`;
+        }
+        return `<p>[${log.timestamp}] ${log.user}: ${log.action} ${log.target} ${undoBtn}</p>`;
+    }).join('');
+}
+
+async function undoAction(id) {
+    await fetch(`/api/v1/logs/undo/${id}`, { method: 'POST' });
+    fetchLogs();
+    fetchInstances();
 }
 
 async function editInstance(name) {
