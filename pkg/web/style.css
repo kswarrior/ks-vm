@@ -81,3 +81,22 @@ body.cyber-bg {
     transform: scale(1.02);
     box-shadow: 0 0 15px var(--accent-color);
 }
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.badge-vm {
+    background-color: #00f2ff;
+    color: #000;
+}
+
+.badge-container {
+    background-color: #ff00ff;
+    color: #000;
+}

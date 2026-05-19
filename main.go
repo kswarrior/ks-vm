@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"ksvm/pkg/container"
 	"ksvm/pkg/daemon"
 	"ksvm/pkg/kvm"
 )
@@ -47,6 +48,9 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(purgeCmd)
 	rootCmd.AddCommand(daemonCmd)
+	rootCmd.AddCommand(suspendCmd)
+	rootCmd.AddCommand(resumeCmd)
+	rootCmd.AddCommand(internalRunCmd)
 
 	shellCmd.Flags().StringVarP(&shellToken, "token", "t", "", "Custom session token for Web UI hook")
 	purgeCmd.Flags().BoolVarP(&purgeForce, "force", "f", false, "Force purge without confirmation")
@@ -157,13 +161,13 @@ var listCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSTATUS\tIP ADDRESSES")
+		fmt.Fprintln(w, "NAME\tTYPE\tSTATUS\tIP ADDRESSES")
 		for _, vm := range vms {
 			ips := strings.Join(vm.IPs, ", ")
 			if ips == "" {
 				ips = "-"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", vm.Name, vm.Status, ips)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", vm.Name, vm.Type, vm.Status, ips)
 		}
 		w.Flush()
 	},
@@ -259,6 +263,7 @@ var infoCmd = &cobra.Command{
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintf(w, "NAME:\t%s\n", info.Name)
+		fmt.Fprintf(w, "TYPE:\t%s\n", info.Type)
 		fmt.Fprintf(w, "STATUS:\t%s\n", info.Status)
 		fmt.Fprintf(w, "CPUs:\t%d\n", info.CPUs)
 		fmt.Fprintf(w, "MEMORY:\t%d MiB\n", info.MemoryMB)
@@ -462,6 +467,54 @@ func parsePortMap(pm string) daemon.Config {
 		}
 	}
 	return cfg
+}
+
+var suspendCmd = &cobra.Command{
+	Use:   "suspend <name>",
+	Short: "Pause a running instance",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.Suspend(args[0]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("Instance %s suspended.\n", args[0])
+	},
+}
+
+var resumeCmd = &cobra.Command{
+	Use:   "resume <name>",
+	Short: "Continue a suspended instance",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		manager, err := kvm.NewManager()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer manager.Close()
+
+		if err := manager.Resume(args[0]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("Instance %s resumed.\n", args[0])
+	},
+}
+
+var internalRunCmd = &cobra.Command{
+	Use:    "internal-run <name> <dir>",
+	Hidden: true,
+	Run: func(cmd *cobra.Command, args []string) {
+		container.Run(args[0], args[1], args[2:])
+	},
 }
 
 var purgeCmd = &cobra.Command{

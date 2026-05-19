@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/term"
+	"ksvm/pkg/container"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 )
@@ -43,9 +44,14 @@ func (m *Manager) Close() error {
 	return err
 }
 
-// Deploy creates a new VM from a base image using a QCOW2 overlay.
+// Deploy creates a new VM or Container instance.
 func (m *Manager) Deploy(name, baseImage string) error {
-	// 1. Resolve base image path
+	// 1. Image Type Detection
+	if strings.HasPrefix(baseImage, "docker://") || (!strings.HasSuffix(baseImage, ".qcow2") && !strings.Contains(baseImage, "/")) {
+		return m.DeployContainer(name, baseImage)
+	}
+
+	// 2. Resolve base image path
 	imagePath := filepath.Join(ImagesDir, baseImage)
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
 		imagePath = filepath.Join(ImagesDir, baseImage+".qcow2")
@@ -58,7 +64,7 @@ func (m *Manager) Deploy(name, baseImage string) error {
 		}
 	}
 
-	// 2. Ensure instances directory exists
+	// 3. Ensure instances directory exists
 	instancesDir := filepath.Join(BaseDir, "instances", name)
 	if err := os.MkdirAll(instancesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create instances directory: %v", err)
@@ -66,14 +72,13 @@ func (m *Manager) Deploy(name, baseImage string) error {
 
 	diskPath := filepath.Join(instancesDir, "disk.qcow2")
 
-	// 3. Create QCOW2 overlay
-	// qemu-img create -f qcow2 -b <imagePath> -F qcow2 <diskPath>
+	// 4. Create QCOW2 overlay
 	cmd := exec.Command("qemu-img", "create", "-f", "qcow2", "-b", imagePath, "-F", "qcow2", diskPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create overlay disk: %v, output: %s", err, string(output))
 	}
 
-	// 3. Generate XML
+	// 5. Generate XML
 	config := VMConfig{
 		Name:     name,
 		MemoryMB: 1024,
@@ -85,7 +90,7 @@ func (m *Manager) Deploy(name, baseImage string) error {
 		return fmt.Errorf("failed to generate domain XML: %v", err)
 	}
 
-	// 4. Define and start the VM
+	// 6. Define and start the VM
 	domain, err := m.conn.DomainDefineXML(xml)
 	if err != nil {
 		return fmt.Errorf("failed to define domain: %v", err)
@@ -98,75 +103,151 @@ func (m *Manager) Deploy(name, baseImage string) error {
 	return nil
 }
 
-// Launch starts a stopped VM.
-func (m *Manager) Launch(name string) error {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		return fmt.Errorf("failed to find domain %s: %v", name, err)
+// DeployContainer provisions a container instance.
+func (m *Manager) DeployContainer(name, image string) error {
+	destDir := filepath.Join(BaseDir, "containers", name)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return err
 	}
 
-	if err := domain.Create(); err != nil {
-		return fmt.Errorf("failed to start domain %s: %v", name, err)
+	// Unpack image
+	if err := container.PullAndUnpack(image, destDir); err != nil {
+		return err
 	}
+
+	// Record metadata
+	meta := map[string]string{
+		"type": "container",
+		"image": image,
+		"status": "stopped",
+	}
+	metaJSON, _ := json.Marshal(meta)
+	os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
 
 	return nil
 }
 
-// Stop gracefully shuts down a VM using ACPI.
+// Launch starts a stopped VM or Container.
+func (m *Manager) Launch(name string) error {
+	// Try VM first
+	domain, err := m.conn.LookupDomainByName(name)
+	if err == nil {
+		if err := domain.Create(); err != nil {
+			return fmt.Errorf("failed to start domain %s: %v", name, err)
+		}
+		return nil
+	}
+
+	// Try Container
+	destDir := filepath.Join(BaseDir, "containers", name)
+	if _, err := os.Stat(destDir); err == nil {
+		metaData, _ := os.ReadFile(filepath.Join(destDir, "meta.json"))
+		var meta map[string]string
+		json.Unmarshal(metaData, &meta)
+
+		go container.Run(name, destDir, []string{"/bin/sh"})
+
+		meta["status"] = "running"
+		metaJSON, _ := json.Marshal(meta)
+		os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+		return nil
+	}
+
+	return fmt.Errorf("instance %s not found", name)
+}
+
+// Stop gracefully shuts down a VM or Container.
 func (m *Manager) Stop(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
+	if err == nil {
+		if err := domain.Shutdown(); err != nil {
+			return fmt.Errorf("failed to shutdown domain %s: %v", name, err)
+		}
+		return nil
+	}
+
+	destDir := filepath.Join(BaseDir, "containers", name)
+	if _, err := os.Stat(destDir); err == nil {
+		if err := container.Stop(destDir); err != nil {
+			return err
+		}
+
+		metaData, _ := os.ReadFile(filepath.Join(destDir, "meta.json"))
+		var meta map[string]string
+		json.Unmarshal(metaData, &meta)
+		meta["status"] = "stopped"
+		metaJSON, _ := json.Marshal(meta)
+		os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+		return nil
+	}
+
+	return fmt.Errorf("instance %s not found", name)
+}
+
+// Suspend pauses a running VM.
+func (m *Manager) Suspend(name string) error {
+	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
 		return fmt.Errorf("failed to find domain %s: %v", name, err)
 	}
+	return domain.Suspend()
+}
 
-	if err := domain.Shutdown(); err != nil {
-		return fmt.Errorf("failed to shutdown domain %s: %v", name, err)
+// Resume continues a suspended VM.
+func (m *Manager) Resume(name string) error {
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return fmt.Errorf("failed to find domain %s: %v", name, err)
 	}
+	return domain.Resume()
+}
 
+// Update modifies VM resources (CPU/Memory).
+func (m *Manager) Update(name string, memoryMB, cpus uint) error {
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return fmt.Errorf("failed to find domain %s: %v", name, err)
+	}
+	if err := domain.SetMemoryFlags(uint64(memoryMB)*1024, 0); err != nil {
+		return fmt.Errorf("failed to set memory: %v", err)
+	}
+	if err := domain.SetVcpusFlags(cpus, 0); err != nil {
+		return fmt.Errorf("failed to set vcpus: %v", err)
+	}
 	return nil
 }
 
-// VMInfo contains information about a VM.
+// VMInfo contains information about an instance (VM or Container).
 type VMInfo struct {
 	Name      string
 	Status    string
+	Type      string // "vm" or "container"
 	IPs       []string
 	CPUs      uint
 	MemoryMB  uint
 	DiskUsage int64
 }
 
-// Delete stops, destroys, and removes the VM and its storage.
+// Delete stops, destroys, and removes the VM/Container and its storage.
 func (m *Manager) Delete(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		return fmt.Errorf("failed to find domain %s: %v", name, err)
-	}
-
-	// Stop the domain if it's running
-	isActive, err := domain.IsActive()
-	if err != nil {
-		return fmt.Errorf("failed to check if domain is active: %v", err)
-	}
-
-	if isActive {
-		if err := domain.Destroy(); err != nil {
-			return fmt.Errorf("failed to destroy domain: %v", err)
+	if err == nil {
+		isActive, _ := domain.IsActive()
+		if isActive {
+			domain.Destroy()
 		}
+		domain.Undefine()
+		os.RemoveAll(filepath.Join(BaseDir, "instances", name))
+		return nil
 	}
 
-	// Undefine (remove from libvirt)
-	if err := domain.Undefine(); err != nil {
-		return fmt.Errorf("failed to undefine domain: %v", err)
+	destDir := filepath.Join(BaseDir, "containers", name)
+	if _, err := os.Stat(destDir); err == nil {
+		container.Stop(destDir)
+		return os.RemoveAll(destDir)
 	}
 
-	// Remove storage
-	instancesDir := filepath.Join(BaseDir, "instances", name)
-	if err := os.RemoveAll(instancesDir); err != nil {
-		return fmt.Errorf("failed to remove instance storage: %v", err)
-	}
-
-	return nil
+	return fmt.Errorf("instance %s not found", name)
 }
 
 // AddImage registers a base cloud image.
@@ -189,31 +270,43 @@ func (m *Manager) RemoveImage(name string) error {
 	return RemoveImage(name)
 }
 
-// Restart reboots a VM gracefully, falling back to hard reset.
+// Restart reboots a VM/Container gracefully.
 func (m *Manager) Restart(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		return fmt.Errorf("failed to find domain %s: %v", name, err)
-	}
-
-	// Try graceful reboot first
-	if err := domain.Reboot(0); err != nil {
-		// Fallback to hard reset if domain is running
-		isActive, _ := domain.IsActive()
-		if isActive {
-			return domain.Reset(0)
+	if err == nil {
+		if err := domain.Reboot(0); err != nil {
+			isActive, _ := domain.IsActive()
+			if isActive {
+				return domain.Reset(0)
+			}
+			return err
 		}
-		return err
+		return nil
 	}
 
-	return nil
+	destDir := filepath.Join(BaseDir, "containers", name)
+	if _, err := os.Stat(destDir); err == nil {
+		m.Stop(name)
+		return m.Launch(name)
+	}
+
+	return fmt.Errorf("instance %s not found", name)
 }
 
-// Exec runs a non-interactive command inside the guest via QEMU Guest Agent.
+// Exec runs a non-interactive command inside the guest.
 func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		return "", fmt.Errorf("failed to find domain %s: %v", name, err)
+		destDir := filepath.Join(BaseDir, "containers", name)
+		if _, err := os.Stat(destDir); err == nil {
+			pidData, err := os.ReadFile(filepath.Join(destDir, "pid"))
+			if err != nil { return "", fmt.Errorf("container not running") }
+			cmd := exec.Command("nsenter", "-t", strings.TrimSpace(string(pidData)), "-m", "-u", "-i", "-n", "-p", "--")
+			cmd.Args = append(cmd.Args, cmdArgs...)
+			out, err := cmd.CombinedOutput()
+			return string(out), err
+		}
+		return "", fmt.Errorf("instance %s not found", name)
 	}
 
 	execCmd := map[string]interface{}{
@@ -241,7 +334,6 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	}
 	pid := startResult.Return.PID
 
-	// Poll for completion
 	for {
 		statusCmd := map[string]interface{}{
 			"execute": "guest-exec-status",
@@ -283,11 +375,23 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	}
 }
 
-// Copy transfers a file from host to guest via QEMU Guest Agent with chunking.
+// Copy transfers a file from host to guest.
 func (m *Manager) Copy(name, localPath, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		return fmt.Errorf("failed to find domain %s: %v", name, err)
+		destDir := filepath.Join(BaseDir, "containers", name)
+		if _, err := os.Stat(destDir); err == nil {
+			target := filepath.Join(destDir, "rootfs", guestPath)
+			src, err := os.Open(localPath)
+			if err != nil { return err }
+			defer src.Close()
+			dst, err := os.Create(target)
+			if err != nil { return err }
+			defer dst.Close()
+			_, err = io.Copy(dst, src)
+			return err
+		}
+		return fmt.Errorf("instance %s not found", name)
 	}
 
 	file, err := os.Open(localPath)
@@ -296,7 +400,6 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 	}
 	defer file.Close()
 
-	// 1. Open file in guest
 	openCmd := map[string]interface{}{
 		"execute": "guest-file-open",
 		"arguments": map[string]interface{}{
@@ -318,7 +421,6 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 	}
 	handle := openResult.Return
 
-	// 2. Write content in chunks (e.g., 32KB)
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := file.Read(buf)
@@ -345,7 +447,6 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 		}
 	}
 
-	// 3. Close file
 	closeCmd := map[string]interface{}{
 		"execute": "guest-file-close",
 		"arguments": map[string]interface{}{
@@ -361,45 +462,34 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 	return nil
 }
 
-// Umount detaches a shared directory from the VM.
+// Umount detaches a shared directory.
 func (m *Manager) Umount(name, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		return fmt.Errorf("failed to find domain %s: %v", name, err)
+		return fmt.Errorf("umount not supported for containers")
 	}
 
-	// 1. Gracefully unmount in guest
 	unmountCmd := []string{"/usr/bin/umount", guestPath}
-	m.Exec(name, unmountCmd) // Ignore error if already unmounted
+	m.Exec(name, unmountCmd)
 
-	// 2. Resolve the tag used during mount
 	tag := "ksvm-mount-" + strings.ReplaceAll(guestPath, "/", "-")
-
 	fs := libvirtxml.DomainFilesystem{
 		Target: &libvirtxml.DomainFilesystemTarget{
 			Dir: tag,
 		},
 	}
-
-	xml, err := fs.Marshal()
-	if err != nil {
-		return err
-	}
-
-	// VIR_DOMAIN_DEVICE_MODIFY_LIVE = 1
+	xml, _ := fs.Marshal()
 	return domain.DetachDeviceFlags(xml, 1)
 }
 
-// Mount dynamically attaches a host directory to the VM and mounts it in the guest.
+// Mount dynamically attaches a host directory.
 func (m *Manager) Mount(name, hostPath, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		return fmt.Errorf("failed to find domain %s: %v", name, err)
+		return fmt.Errorf("mount not supported for containers")
 	}
 
-	// Use a unique tag for the mount
 	tag := "ksvm-mount-" + strings.ReplaceAll(guestPath, "/", "-")
-
 	fs := libvirtxml.DomainFilesystem{
 		AccessMode: "passthrough",
 		Source: &libvirtxml.DomainFilesystemSource{
@@ -411,29 +501,13 @@ func (m *Manager) Mount(name, hostPath, guestPath string) error {
 			Dir: tag,
 		},
 	}
-
-	xml, err := fs.Marshal()
-	if err != nil {
+	xml, _ := fs.Marshal()
+	if err := domain.AttachDeviceFlags(xml, 1); err != nil {
 		return err
 	}
 
-	// Hot-plug the device
-	// VIR_DOMAIN_DEVICE_MODIFY_LIVE = 1
-	if err := domain.AttachDeviceFlags(xml, 1); err != nil {
-		return fmt.Errorf("failed to attach device: %v", err)
-	}
-
-	// Run mount command in guest
-	mountCmd := []string{"/usr/bin/mkdir", "-p", guestPath}
-	if _, err := m.Exec(name, mountCmd); err != nil {
-		return fmt.Errorf("failed to create mount point in guest: %v", err)
-	}
-
-	mountCmd = []string{"/usr/bin/mount", "-t", "9p", "-o", "trans=virtio,version=9p2000.L", tag, guestPath}
-	if _, err := m.Exec(name, mountCmd); err != nil {
-		return fmt.Errorf("failed to mount in guest: %v", err)
-	}
-
+	m.Exec(name, []string{"/usr/bin/mkdir", "-p", guestPath})
+	m.Exec(name, []string{"/usr/bin/mount", "-t", "9p", "-o", "trans=virtio,version=9p2000.L", tag, guestPath})
 	return nil
 }
 
@@ -441,6 +515,16 @@ func (m *Manager) Mount(name, hostPath, guestPath string) error {
 func (m *Manager) Shell(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
+		destDir := filepath.Join(BaseDir, "containers", name)
+		if _, err := os.Stat(destDir); err == nil {
+			pidData, err := os.ReadFile(filepath.Join(destDir, "pid"))
+			if err != nil { return fmt.Errorf("container not running") }
+			cmd := exec.Command("nsenter", "-t", strings.TrimSpace(string(pidData)), "-m", "-u", "-i", "-n", "-p", "/bin/sh")
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
 		return fmt.Errorf("failed to find domain %s: %v", name, err)
 	}
 
@@ -454,7 +538,6 @@ func (m *Manager) Shell(name string) error {
 		return err
 	}
 
-	// Set stdin to raw mode
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		return err
@@ -465,13 +548,9 @@ func (m *Manager) Shell(name string) error {
 		buf := make([]byte, 1024)
 		for {
 			n, err := os.Stdin.Read(buf)
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			_, err = stream.Send(buf[:n])
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 		}
 	}()
 
@@ -479,13 +558,22 @@ func (m *Manager) Shell(name string) error {
 	for {
 		n, err := stream.Recv(buf)
 		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
+			if err == io.EOF { return nil }
 			return err
 		}
 		os.Stdout.Write(buf[:n])
 	}
+}
+
+// Purge destroys all VMs and wipes all storage.
+func (m *Manager) Purge() error {
+	domains, _ := m.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
+	for _, domain := range domains {
+		isActive, _ := domain.IsActive()
+		if isActive { domain.Destroy() }
+		domain.Undefine()
+	}
+	return os.RemoveAll(BaseDir)
 }
 
 // VersionInfo contains version metadata.
@@ -495,35 +583,10 @@ type VersionInfo struct {
 	QEMU    string
 }
 
-// Purge destroys all VMs and wipes all storage.
-func (m *Manager) Purge() error {
-	domains, err := m.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
-	if err != nil {
-		return err
-	}
-
-	for _, domain := range domains {
-		isActive, _ := domain.IsActive()
-		if isActive {
-			domain.Destroy()
-		}
-		domain.Undefine()
-	}
-
-	return os.RemoveAll(BaseDir)
-}
-
-// Version returns the current versions of ksvm, libvirt, and QEMU.
+// Version returns the current versions.
 func (m *Manager) Version() (*VersionInfo, error) {
-	libVer, err := m.conn.GetLibVersion()
-	if err != nil {
-		return nil, err
-	}
-	qemuVer, err := m.conn.GetVersion()
-	if err != nil {
-		return nil, err
-	}
-
+	libVer, _ := m.conn.GetLibVersion()
+	qemuVer, _ := m.conn.GetVersion()
 	return &VersionInfo{
 		KSVM:    "0.1.0-prototype",
 		Libvirt: fmt.Sprintf("%d.%d.%d", libVer/1000000, (libVer%1000000)/1000, libVer%1000),
@@ -531,98 +594,65 @@ func (m *Manager) Version() (*VersionInfo, error) {
 	}, nil
 }
 
-// Info returns detailed information about a VM.
+// Info returns detailed information about an instance.
 func (m *Manager) Info(name string) (*VMInfo, error) {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find domain %s: %v", name, err)
-	}
-
-	info, err := domain.GetInfo()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get domain info: %v", err)
-	}
-
-	state, _, _ := domain.GetState()
-	status := "Unknown"
-	switch state {
-	case libvirt.DOMAIN_RUNNING:
-		status = "Running"
-	case libvirt.DOMAIN_PAUSED:
-		status = "Paused"
-	case libvirt.DOMAIN_SHUTOFF:
-		status = "Stopped"
-	}
-
-	var ips []string
-	if state == libvirt.DOMAIN_RUNNING {
-		ifaces, err := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
-		if err == nil {
-			for _, iface := range ifaces {
-				for _, addr := range iface.Addrs {
-					ips = append(ips, addr.Addr)
-				}
-			}
+	if err == nil {
+		info, _ := domain.GetInfo()
+		state, _, _ := domain.GetState()
+		status := "Unknown"
+		switch state {
+		case libvirt.DOMAIN_RUNNING: status = "Running"
+		case libvirt.DOMAIN_PAUSED: status = "Paused"
+		case libvirt.DOMAIN_SHUTOFF: status = "Stopped"
 		}
+		var ips []string
+		ifaces, _ := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
+		for _, iface := range ifaces {
+			for _, addr := range iface.Addrs { ips = append(ips, addr.Addr) }
+		}
+		return &VMInfo{
+			Name: name, Status: status, Type: "vm", IPs: ips,
+			CPUs: uint(info.NrVirtCpu), MemoryMB: uint(info.MaxMem / 1024),
+		}, nil
 	}
 
-	// Disk usage - simple approach: check the instance disk size
-	var diskUsage int64
-	diskPath := filepath.Join(BaseDir, "instances", name, "disk.qcow2")
-	if fi, err := os.Stat(diskPath); err == nil {
-		diskUsage = fi.Size()
+	destDir := filepath.Join(BaseDir, "containers", name)
+	if _, err := os.Stat(destDir); err == nil {
+		metaData, _ := os.ReadFile(filepath.Join(destDir, "meta.json"))
+		var meta map[string]string
+		json.Unmarshal(metaData, &meta)
+		return &VMInfo{
+			Name: name, Status: meta["status"], Type: "container", IPs: []string{"internal"},
+		}, nil
 	}
-
-	return &VMInfo{
-		Name:      name,
-		Status:    status,
-		IPs:       ips,
-		CPUs:      uint(info.NrVirtCpu),
-		MemoryMB:  uint(info.MaxMem / 1024),
-		DiskUsage: diskUsage,
-	}, nil
+	return nil, fmt.Errorf("instance %s not found", name)
 }
 
-// List returns a list of all VMs and their statuses.
+// List returns a list of all instances.
 func (m *Manager) List() ([]VMInfo, error) {
-	domains, err := m.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list domains: %v", err)
-	}
-
 	var infos []VMInfo
+	domains, _ := m.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
 	for _, domain := range domains {
 		name, _ := domain.GetName()
 		state, _, _ := domain.GetState()
-
 		status := "Unknown"
 		switch state {
-		case libvirt.DOMAIN_RUNNING:
-			status = "Running"
-		case libvirt.DOMAIN_PAUSED:
-			status = "Paused"
-		case libvirt.DOMAIN_SHUTOFF:
-			status = "Stopped"
+		case libvirt.DOMAIN_RUNNING: status = "Running"
+		case libvirt.DOMAIN_PAUSED: status = "Paused"
+		case libvirt.DOMAIN_SHUTOFF: status = "Stopped"
 		}
-
-		var ips []string
-		if state == libvirt.DOMAIN_RUNNING {
-			ifaces, err := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
-			if err == nil {
-				for _, iface := range ifaces {
-					for _, addr := range iface.Addrs {
-						ips = append(ips, addr.Addr)
-					}
-				}
-			}
-		}
-
-		infos = append(infos, VMInfo{
-			Name:   name,
-			Status: status,
-			IPs:    ips,
-		})
+		infos = append(infos, VMInfo{Name: name, Status: status, Type: "vm"})
 	}
-
+	containerDir := filepath.Join(BaseDir, "containers")
+	entries, _ := os.ReadDir(containerDir)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			metaData, _ := os.ReadFile(filepath.Join(containerDir, entry.Name(), "meta.json"))
+			var meta map[string]string
+			json.Unmarshal(metaData, &meta)
+			infos = append(infos, VMInfo{Name: entry.Name(), Status: meta["status"], Type: "container"})
+		}
+	}
 	return infos, nil
 }
