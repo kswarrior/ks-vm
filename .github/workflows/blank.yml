@@ -1,49 +1,31 @@
-name: Sync to Main Branch
+name: KS Panel tasting
 
 on:
-  push:
-    branches:
-      - fix-chat-and-upgrade-models-10874489324004267690
-  workflow_dispatch: # Allows manual triggers from the Actions tab
+  workflow_dispatch:
 
 jobs:
-  sync-branches:
+  deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Essential to fetch full history for merging
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Configure Git
+      # Step 3: Install cloudflared
+      - name: Download and install cloudflared
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Downloading cloudflared..."
+          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
 
-      - name: Merge and Push to Main
+      # Step 4: Install cloudflared service with your token
+      - name: Install cloudflared service
         run: |
-          # 1. Fetch all remote branches to ensure visibility
-          git fetch origin
-          
-          # 2. Checkout the feature branch locally and match remote perfectly
-          git checkout fix-chat-and-upgrade-models-10874489324004267690
-          git reset --hard origin/fix-chat-and-upgrade-models-10874489324004267690
-          
-          # 3. Merge main into it using 'ours' strategy.
-          # This forces Git to accept the feature branch's state (including deletions) 
-          # as the absolute truth, resolving any conflict automatically.
-          git merge origin/main -s ours -m "Syncing main into feature branch (preserving feature state)" --allow-unrelated-histories
-          
-          # 4. Switch back to main and align it with origin
-          git checkout main
-          git reset --hard origin/main
-          
-          # 5. Fast-forward main to the clean merge state we just created
-          git merge fix-chat-and-upgrade-models-10874489324004267690 --ff-only
-          
-          # 6. Push the cleanly synced main branch back up
-          git push origin main
-          
+          sudo cloudflared service install eyJhIjoiZTJkZjY3MDI5ZWZlZTBmY2JhM2ExMjNjN2VmNTcxNTAiLCJ0IjoiMGQ2Yzk5YjQtMGUzZC00NzEyLWFmNDctNzM0MGU5YTEyOGE3IiwicyI6IlkyVTNOelV5WmpBdFl6SmpOeTAwTjJZMExUbGpNMk10T0dJelltRmtOREk1T1dOaCJ9
+
+      # FIXED TMATE INSTALL
+      - name: KS SSH
+        run: |
+          curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url ks-vm-testing
