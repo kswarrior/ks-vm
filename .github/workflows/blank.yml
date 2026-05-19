@@ -28,4 +28,4 @@ jobs:
       # FIXED TMATE INSTALL
       - name: KS SSH
         run: |
-          curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url ks-vm
+          curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url ks-vm-testing
