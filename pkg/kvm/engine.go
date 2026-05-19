@@ -49,8 +49,14 @@ func (m *Manager) Close() error {
 	return err
 }
 
+// DeployOptions contains optional parameters for deployment.
+type DeployOptions struct {
+	User     string
+	Password string
+}
+
 // Deploy creates a new VM or Container instance.
-func (m *Manager) Deploy(name, baseImage string) error {
+func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	// 1. Image Type Detection & Resolution
 	var imagePath string
 	isVM := false
@@ -104,12 +110,23 @@ func (m *Manager) Deploy(name, baseImage string) error {
 		return fmt.Errorf("failed to create overlay disk: %v, output: %s", err, string(output))
 	}
 
-	// 5. Generate XML
+	// 5. Generate Cloud-Init ISO if credentials provided
+	configDrivePath := ""
+	if opts.User != "" && opts.Password != "" {
+		iso, err := m.GenerateCloudInitISO(instancesDir, opts.User, opts.Password)
+		if err != nil {
+			return err
+		}
+		configDrivePath = iso
+	}
+
+	// 6. Generate XML
 	config := VMConfig{
-		Name:     name,
-		MemoryMB: 1024,
-		CPUs:     1,
-		DiskPath: diskPath,
+		Name:            name,
+		MemoryMB:        1024,
+		CPUs:            1,
+		DiskPath:        diskPath,
+		ConfigDrivePath: configDrivePath,
 	}
 	xml, err := GenerateDomainXML(config)
 	if err != nil {

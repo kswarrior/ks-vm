@@ -130,14 +130,20 @@ func (a *API) getInstanceInfo(c *gin.Context) {
 
 func (a *API) deployInstance(c *gin.Context) {
 	var req struct {
-		Name  string `json:"name" binding:"required"`
-		Image string `json:"image" binding:"required"`
+		Name     string `json:"name" binding:"required"`
+		Image    string `json:"image" binding:"required"`
+		User     string `json:"user"`
+		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := a.manager.Deploy(req.Name, req.Image); err != nil {
+	opts := kvm.DeployOptions{
+		User:     req.User,
+		Password: req.Password,
+	}
+	if err := a.manager.Deploy(req.Name, req.Image, opts); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
