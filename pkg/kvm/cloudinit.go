@@ -19,10 +19,29 @@ func (m *Manager) GenerateCloudInitISO(rootDir, user, password string) (string, 
 
 	isoPath := filepath.Join(rootDir, "cloud-init.iso")
 
-	// Use xorrisofs as a replacement for genisoimage
-	cmd := exec.Command("xorrisofs", "-output", isoPath, "-volid", "cidata", "-joliet", "-rock", configDir)
+	// Search for an available ISO tool
+	var tool string
+	candidates := []string{"xorrisofs", "genisoimage", "mkisofs", "xorriso"}
+	for _, c := range candidates {
+		if path, err := exec.LookPath(c); err == nil {
+			tool = path
+			break
+		}
+	}
+
+	if tool == "" {
+		return "", fmt.Errorf("no ISO generation tool found (xorrisofs, genisoimage, mkisofs). Please install 'xorriso' or 'genisoimage'")
+	}
+
+	var cmd *exec.Cmd
+	if filepath.Base(tool) == "xorriso" {
+		cmd = exec.Command(tool, "-as", "mkisofs", "-output", isoPath, "-volid", "cidata", "-joliet", "-rock", configDir)
+	} else {
+		cmd = exec.Command(tool, "-output", isoPath, "-volid", "cidata", "-joliet", "-rock", configDir)
+	}
+
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("failed to create cloud-init ISO: %v, output: %s", err, string(output))
+		return "", fmt.Errorf("failed to create cloud-init ISO using %s: %v, output: %s", tool, err, string(output))
 	}
 
 	return isoPath, nil
