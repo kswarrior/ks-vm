@@ -60,16 +60,33 @@ func Run(name, rootDir string, args []string) error {
 
 // Stop terminates a container process.
 func Stop(rootDir string) error {
-	pidData, err := os.ReadFile(filepath.Join(rootDir, "pid"))
+	pidPath := filepath.Join(rootDir, "pid")
+	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Already stopped or never started
+		}
 		return err
 	}
 	var pid int
-	fmt.Sscanf(string(pidData), "%d", &pid)
+	if _, err := fmt.Sscanf(string(pidData), "%d", &pid); err != nil {
+		return err
+	}
 
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return err
 	}
-	return process.Signal(syscall.SIGTERM)
+	// On Unix, FindProcess always succeeds and returns a Process object
+	// with the given pid. We should check if the process actually exists.
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		os.Remove(pidPath)
+		return nil
+	}
+
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		return err
+	}
+	os.Remove(pidPath)
+	return nil
 }

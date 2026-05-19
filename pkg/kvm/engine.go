@@ -28,7 +28,11 @@ type Manager struct {
 
 // NewManager creates a new Manager and connects to the local libvirt daemon.
 func NewManager() (*Manager, error) {
-	conn, err := libvirt.NewConnect("qemu:///system")
+	uri := os.Getenv("LIBVIRT_DEFAULT_URI")
+	if uri == "" {
+		uri = "qemu:///system"
+	}
+	conn, err := libvirt.NewConnect(uri)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to libvirt: %v", err)
 	}
@@ -46,21 +50,35 @@ func (m *Manager) Close() error {
 
 // Deploy creates a new VM or Container instance.
 func (m *Manager) Deploy(name, baseImage string) error {
-	// 1. Image Type Detection
-	if strings.HasPrefix(baseImage, "docker://") || (!strings.HasSuffix(baseImage, ".qcow2") && !strings.Contains(baseImage, "/")) {
+	// 1. Image Type Detection & Resolution
+	var imagePath string
+	isVM := false
+
+	// Check if baseImage is an absolute or relative path to a file
+	if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
+		imagePath = baseImage
+		isVM = true
+	} else {
+		// Check in ImagesDir
+		paths := []string{
+			filepath.Join(ImagesDir, baseImage),
+			filepath.Join(ImagesDir, baseImage+".qcow2"),
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				imagePath = p
+				isVM = true
+				break
+			}
+		}
+	}
+
+	if !isVM && (strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/")) {
 		return m.DeployContainer(name, baseImage)
 	}
 
-	// 2. Resolve base image path
-	imagePath := filepath.Join(ImagesDir, baseImage)
-	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		imagePath = filepath.Join(ImagesDir, baseImage+".qcow2")
-		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-			if _, err := os.Stat(baseImage); err != nil {
-				return fmt.Errorf("base image %s not found", baseImage)
-			}
-			imagePath = baseImage
-		}
+	if !isVM {
+		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
 	}
 
 	// 3. Ensure instances directory exists
@@ -68,6 +86,14 @@ func (m *Manager) Deploy(name, baseImage string) error {
 	if err := os.MkdirAll(instancesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create instances directory: %v", err)
 	}
+
+	// Cleanup on failure
+	deployed := false
+	defer func() {
+		if !deployed {
+			os.RemoveAll(instancesDir)
+		}
+	}()
 
 	diskPath := filepath.Join(instancesDir, "disk.qcow2")
 
@@ -96,9 +122,11 @@ func (m *Manager) Deploy(name, baseImage string) error {
 	}
 
 	if err := domain.Create(); err != nil {
+		domain.Undefine()
 		return fmt.Errorf("failed to start domain: %v", err)
 	}
 
+	deployed = true
 	return nil
 }
 
@@ -108,6 +136,13 @@ func (m *Manager) DeployContainer(name, image string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
+
+	deployed := false
+	defer func() {
+		if !deployed {
+			os.RemoveAll(destDir)
+		}
+	}()
 
 	if err := container.PullAndUnpack(image, destDir); err != nil {
 		return err
@@ -119,8 +154,14 @@ func (m *Manager) DeployContainer(name, image string) error {
 		"status": "stopped",
 	}
 	metaJSON, err := json.Marshal(meta)
-	if err != nil { return err }
-	return os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644); err != nil {
+		return err
+	}
+	deployed = true
+	return nil
 }
 
 // Launch starts a stopped VM or Container.
@@ -555,19 +596,36 @@ func (m *Manager) List() ([]VMInfo, error) {
 			state, _, _ := domain.GetState()
 			status := "Unknown"
 			switch state {
-			case libvirt.DOMAIN_RUNNING: status = "Running"
-			case libvirt.DOMAIN_PAUSED: status = "Paused"
-			case libvirt.DOMAIN_SHUTOFF: status = "Stopped"
+			case libvirt.DOMAIN_RUNNING:
+				status = "running"
+			case libvirt.DOMAIN_PAUSED:
+				status = "paused"
+			case libvirt.DOMAIN_SHUTOFF:
+				status = "stopped"
 			}
-			infos = append(infos, VMInfo{Name: name, Status: status, Type: "vm"})
+			var ips []string
+			if status == "running" {
+				ifaces, _ := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
+				for _, iface := range ifaces {
+					for _, addr := range iface.Addrs {
+						ips = append(ips, addr.Addr)
+					}
+				}
+			}
+			infos = append(infos, VMInfo{Name: name, Status: status, Type: "vm", IPs: ips})
 		}
 	}
 	entries, _ := os.ReadDir(filepath.Join(BaseDir, "containers"))
 	for _, entry := range entries {
 		if entry.IsDir() {
-			metaData, _ := os.ReadFile(filepath.Join(BaseDir, "containers", entry.Name(), "meta.json"))
+			metaData, err := os.ReadFile(filepath.Join(BaseDir, "containers", entry.Name(), "meta.json"))
+			if err != nil {
+				continue
+			}
 			var meta map[string]string
-			json.Unmarshal(metaData, &meta)
+			if err := json.Unmarshal(metaData, &meta); err != nil {
+				continue
+			}
 			infos = append(infos, VMInfo{Name: entry.Name(), Status: meta["status"], Type: "container"})
 		}
 	}
