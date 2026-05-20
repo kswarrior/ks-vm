@@ -202,9 +202,25 @@ func (m *Manager) isContainerRunning(name string) (bool, int) {
 	// On Unix, FindProcess always succeeds. Use signal 0 to check existence.
 	err = process.Signal(syscall.Signal(0))
 	if err != nil {
+		// Update meta.json if we detected it died
+		m.updateContainerStatus(name, "stopped")
 		return false, 0
 	}
 	return true, pid
+}
+
+func (m *Manager) updateContainerStatus(name, status string) {
+	destDir := filepath.Join(BaseDir, "containers", name)
+	metaPath := filepath.Join(destDir, "meta.json")
+	metaData, err := os.ReadFile(metaPath)
+	if err == nil {
+		var meta map[string]string
+		if err := json.Unmarshal(metaData, &meta); err == nil {
+			meta["status"] = status
+			newMeta, _ := json.Marshal(meta)
+			os.WriteFile(metaPath, newMeta, 0644)
+		}
+	}
 }
 
 // Launch starts a stopped VM or Container.
@@ -240,10 +256,10 @@ func (m *Manager) Launch(name string) error {
 		}
 
 		// Verify liveness
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		if r, _ := m.isContainerRunning(name); !r {
 			logData, _ := os.ReadFile(filepath.Join(destDir, "container.log"))
-			return fmt.Errorf("container exited immediately. Log: %s", string(logData))
+			return fmt.Errorf("container exited immediately. Check /var/lib/ksvm/containers/%s/container.log. Last log: %s", name, string(logData))
 		}
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
@@ -755,15 +771,13 @@ func (m *Manager) List() ([]VMInfo, error) {
 	entries, _ := os.ReadDir(filepath.Join(BaseDir, "containers"))
 	for _, entry := range entries {
 		if entry.IsDir() {
-			metaData, err := os.ReadFile(filepath.Join(BaseDir, "containers", entry.Name(), "meta.json"))
-			if err != nil {
-				continue
+			name := entry.Name()
+			status := "stopped"
+			running, _ := m.isContainerRunning(name)
+			if running {
+				status = "running"
 			}
-			var meta map[string]string
-			if err := json.Unmarshal(metaData, &meta); err != nil {
-				continue
-			}
-			infos = append(infos, VMInfo{Name: entry.Name(), Status: meta["status"], Type: "container"})
+			infos = append(infos, VMInfo{Name: name, Status: status, Type: "container"})
 		}
 	}
 	return infos, nil

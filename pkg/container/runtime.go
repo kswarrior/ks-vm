@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -67,12 +68,25 @@ func Run(name, rootDir string, args []string) error {
 		return fmt.Errorf("failed to mount proc: %v", err)
 	}
 
+	// Set a basic PATH if none exists
+	env := os.Environ()
+	hasPath := false
+	for _, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			hasPath = true
+			break
+		}
+	}
+	if !hasPath {
+		env = append(env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	}
+
 	path, err := exec.LookPath(args[0])
 	if err != nil {
 		return fmt.Errorf("command %s not found: %v", args[0], err)
 	}
 
-	return syscall.Exec(path, args, os.Environ())
+	return syscall.Exec(path, args, env)
 }
 
 // Stop terminates a container process.

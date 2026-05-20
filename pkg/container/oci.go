@@ -130,9 +130,17 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 		}
 
 		// Sanitize path to prevent Zip Slip (Path Traversal)
-		target := filepath.Join(dest, filepath.Clean(header.Name))
+		relPath := filepath.Clean(header.Name)
+		target := filepath.Join(dest, relPath)
 		if !strings.HasPrefix(target, filepath.Clean(dest)) {
 			continue // Skip files outside of destination
+		}
+
+		// Handle Docker whiteouts
+		if strings.HasPrefix(filepath.Base(relPath), ".wh.") {
+			whiteoutFile := filepath.Join(filepath.Dir(target), strings.TrimPrefix(filepath.Base(relPath), ".wh."))
+			os.RemoveAll(whiteoutFile)
+			continue
 		}
 
 		switch header.Typeflag {
@@ -144,7 +152,9 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			// Remove existing file to handle layer overwrites
+			os.Remove(target)
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				continue
 			}
@@ -154,6 +164,7 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 			}
 			f.Close()
 		case tar.TypeSymlink:
+			os.Remove(target)
 			os.Symlink(header.Linkname, target)
 		}
 	}
