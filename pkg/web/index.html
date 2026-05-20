@@ -20,170 +20,96 @@
     <div class="app-container">
         <aside id="sidebar" class="sidebar">
             <nav>
-                <ul class="nav-list">
-                    <li class="nav-item active" data-tab="instances">
-                        <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
-                        Instances
-                    </li>
-                    <li class="nav-item" data-tab="images">
-                        <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-                        Images
-                    </li>
-                    <li class="nav-item" data-tab="users">
-                        <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                        Users
-                    </li>
-                    <li class="nav-item" data-tab="log">
-                        <svg viewBox="0 0 24 24"><path d="M13 3H6c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V9l-7-6zm0 1.5L18.5 9H13V4.5zM6 20V5h6v5h5.5v10H6z"/></svg>
-                        Audit Log
-                    </li>
-                </ul>
+                <div class="nav-item active" data-tab="instances">
+                    <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+                    Instances
+                </div>
+                <div class="nav-item" data-tab="images">
+                    <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                    Images
+                </div>
+                <div class="nav-item" data-tab="users">
+                    <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                    Users
+                </div>
+                <div class="nav-item" data-tab="log">
+                    <svg viewBox="0 0 24 24"><path d="M13 3H6c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V9l-7-6zm0 1.5L18.5 9H13V4.5zM6 20V5h6v5h5.5v10H6z"/></svg>
+                    Audit Log
+                </div>
             </nav>
         </aside>
 
         <main class="main-content">
-            <!-- Instances View -->
             <div id="instances" class="view">
                 <div class="view-header">
                     <h1 class="view-title">Instances</h1>
-                    <button class="btn btn-primary" onclick="showTab('deploy')">Deploy New</button>
+                    <button class="btn btn-primary" onclick="showTab('deploy')">+ New Instance</button>
                 </div>
                 <div class="grid" id="instance-grid"></div>
             </div>
 
-            <!-- Deploy View -->
             <div id="deploy" class="view" style="display:none;">
-                <div class="view-header">
-                    <h1 class="view-title">Deploy Instance</h1>
-                </div>
+                <div class="view-header"><h1 class="view-title">Deploy Instance</h1></div>
                 <div class="card" style="max-width: 800px;">
-                    <div class="form-group">
-                        <label>Instance Name</label>
-                        <input type="text" id="deploy-name" placeholder="e.g. production-api">
+                    <label>Name</label><input type="text" id="deploy-name">
+                    <label>Image</label><input type="text" id="deploy-image">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                        <div><label>CPUs</label><input type="number" id="deploy-cpu" value="1"></div>
+                        <div><label>RAM (MB)</label><input type="number" id="deploy-ram" value="1024"></div>
+                        <div><label>Disk (GB)</label><input type="number" id="deploy-disk" value="0"></div>
+                        <div><label>User</label><input type="text" id="deploy-user" placeholder="ubuntu"></div>
                     </div>
-                    <div class="form-group">
-                        <label>Base Image</label>
-                        <input type="text" id="deploy-image" placeholder="e.g. focal or docker://ubuntu">
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>CPUs</label>
-                            <input type="number" id="deploy-cpu" value="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Memory (MiB)</label>
-                            <input type="number" id="deploy-ram" value="1024">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Disk (GB)</label>
-                            <input type="number" id="deploy-disk" value="0">
-                        </div>
-                        <div class="form-group">
-                            <label>Default User</label>
-                            <input type="text" id="deploy-user" placeholder="ksvm">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Initial Password</label>
-                        <input type="password" id="deploy-pass">
-                    </div>
-                    <div style="display:flex; gap:12px; margin-top:10px;">
-                        <button class="btn btn-primary" onclick="deployInstance()" style="flex:1;">Launch Instance</button>
-                        <button class="btn btn-outline" onclick="showTab('instances')">Cancel</button>
-                    </div>
+                    <label>Password</label><input type="password" id="deploy-pass">
+                    <button class="btn btn-primary" onclick="deployInstance()" style="width:100%; margin-top:16px;">Provision Now</button>
+                    <button class="btn" onclick="showTab('instances')" style="width:100%; margin-top:8px;">Cancel</button>
                 </div>
             </div>
 
-            <!-- Edit View -->
             <div id="edit" class="view" style="display:none;">
-                <div class="view-header">
-                    <h1 class="view-title">Edit: <span id="edit-target-name">--</span></h1>
-                </div>
+                <div class="view-header"><h1 class="view-title">Edit Instance</h1></div>
                 <div class="card" style="max-width: 600px;">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>vCPUs</label>
-                            <input type="number" id="edit-cpu">
-                        </div>
-                        <div class="form-group">
-                            <label>RAM (MiB)</label>
-                            <input type="number" id="edit-ram">
-                        </div>
+                    <h2 id="edit-target-name" style="margin-bottom:20px; font-size:1.2rem;"></h2>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                        <div><label>CPUs</label><input type="number" id="edit-cpu"></div>
+                        <div><label>RAM (MB)</label><input type="number" id="edit-ram"></div>
                     </div>
-                    <div style="display:flex; gap:12px;">
-                        <button class="btn btn-primary" onclick="updateInstance()" style="flex:1;">Update</button>
-                        <button class="btn btn-outline" onclick="showTab('instances')">Cancel</button>
-                    </div>
+                    <button class="btn btn-primary" onclick="updateInstance()" style="width:100%; margin-top:16px;">Save Changes</button>
+                    <button class="btn" onclick="showTab('instances')" style="width:100%; margin-top:8px;">Cancel</button>
                 </div>
             </div>
 
-            <!-- Images View -->
             <div id="images" class="view" style="display:none;">
                 <div class="view-header">
                     <h1 class="view-title">Images</h1>
                     <button class="btn btn-primary" onclick="showAddImageForm()">+ Add Image</button>
                 </div>
-                <div id="add-image-form" class="card" style="display:none; max-width: 600px;">
-                    <div class="form-group">
-                        <label>Identifier</label>
-                        <input type="text" id="img-name" placeholder="focal">
-                    </div>
-                    <div class="form-group">
-                        <label>Download URL / Path</label>
-                        <input type="text" id="img-url" placeholder="https://...">
-                    </div>
+                <div id="add-image-form" class="card" style="display:none; max-width:600px; margin-bottom:24px;">
+                    <label>Name</label><input type="text" id="img-name">
+                    <label>URL/Path</label><input type="text" id="img-url">
                     <button class="btn btn-primary" onclick="addImage()">Register</button>
-                    <button class="btn btn-outline" onclick="showAddImageForm(false)">Cancel</button>
+                    <button class="btn" onclick="showAddImageForm(false)">Cancel</button>
                 </div>
                 <div class="grid" id="image-list"></div>
             </div>
 
-            <!-- Users View -->
             <div id="users" class="view" style="display:none;">
                 <div class="view-header">
                     <h1 class="view-title">Users</h1>
                     <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
                 </div>
-                <div id="add-user-form" class="card" style="display:none; max-width: 600px;">
-                    <div class="form-group">
-                        <label>Username</label>
-                        <input type="text" id="user-name">
-                    </div>
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="user-email">
-                    </div>
-                    <div class="form-group">
-                        <label>Password</label>
-                        <input type="password" id="user-pass">
-                    </div>
+                <div id="add-user-form" class="card" style="display:none; max-width:600px; margin-bottom:24px;">
+                    <label>Username</label><input type="text" id="user-name">
+                    <label>Email</label><input type="email" id="user-email">
+                    <label>Password</label><input type="password" id="user-pass">
                     <button class="btn btn-primary" onclick="addUser()">Create</button>
-                    <button class="btn btn-outline" onclick="showAddUserForm(false)">Cancel</button>
+                    <button class="btn" onclick="showAddUserForm(false)">Cancel</button>
                 </div>
                 <div class="grid" id="user-list"></div>
             </div>
 
-            <!-- Audit Log View -->
             <div id="log" class="view" style="display:none;">
-                <div class="view-header">
-                    <h1 class="view-title">Audit Log</h1>
-                </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Timestamp</th>
-                                <th>Account</th>
-                                <th>IP Source</th>
-                                <th>Action</th>
-                                <th>Target</th>
-                            </tr>
-                        </thead>
-                        <tbody id="log-body"></tbody>
-                    </table>
-                </div>
+                <div class="view-header"><h1 class="view-title">Audit Log</h1></div>
+                <div id="log-list"></div>
             </div>
         </main>
     </div>

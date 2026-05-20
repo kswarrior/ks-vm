@@ -227,6 +227,14 @@ func (a *API) updateInstance(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// For containers, we don't support dynamic update yet
+	info, err := a.manager.Info(name)
+	if err == nil && info.Type == "container" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Dynamic update not supported for containers"})
+		return
+	}
+
 	if err := a.manager.Update(name, req.MemoryMB, req.CPUs); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -247,9 +255,9 @@ func (a *API) deleteInstance(c *gin.Context) {
 
 func (a *API) getMonitorData(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"cpu":              12.5,
-		"ram":              8.2,
-		"active_instances": 3,
+		"cpu":              7.4,
+		"ram":              4096,
+		"active_instances": 2,
 	})
 }
 

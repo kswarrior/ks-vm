@@ -17,7 +17,7 @@ func Run(name, rootDir string, args []string) error {
 	if os.Getenv("KSVM_IN_CONTAINER") == "" {
 		cmd := exec.Command("/proc/self/exe", append([]string{"internal-run", name, rootDir}, args...)...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS,
+			Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
 			Setsid:     true, // Detach from parent
 		}
 		cmd.Env = append(os.Environ(), "KSVM_IN_CONTAINER=1")

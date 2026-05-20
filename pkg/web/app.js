@@ -3,9 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             showTab(tab.dataset.tab);
-            if (window.innerWidth <= 768) {
-                document.getElementById('sidebar').classList.remove('open');
-            }
+            if (window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('open');
         });
     });
 
@@ -16,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         const activeTab = document.querySelector('.nav-item.active').dataset.tab;
         if (activeTab === 'instances') fetchInstances();
-    }, 5000);
+    }, 4000);
 
     fetchInstances();
 });
@@ -46,24 +44,41 @@ async function fetchInstances() {
         const card = document.createElement('div');
         card.className = 'card';
         const statusClass = `status-${vm.Status}`;
+
+        // Simple usage calculation for UI
+        const memPerc = vm.MemoryUsage && vm.MemoryMB ? (vm.MemoryUsage / vm.MemoryMB * 100).toFixed(0) : 0;
+
         card.innerHTML = `
-            <div style="display:flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+            <div style="display:flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                 <div>
-                    <h3 style="margin:0; font-size:1.1rem;">${vm.Name}</h3>
-                    <span class="badge badge-${vm.Type}" style="margin-top:6px; display:inline-block;">${vm.Type}</span>
+                    <h3 style="margin:0; font-size:1.15rem;">${vm.Name}</h3>
+                    <div style="margin-top:6px; display:flex; gap:6px;">
+                        <span class="badge badge-vm">${vm.Type}</span>
+                    </div>
                 </div>
                 <span class="badge ${statusClass}">${vm.Status}</span>
             </div>
-            <div style="font-size:0.85rem; color:var(--text-muted); display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                <div>IP: ${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : '-'}</div>
-                <div>CPU: ${vm.CPUs || '-'}</div>
-                <div>RAM: ${vm.MemoryMB ? vm.MemoryMB + 'MB' : '-'}</div>
+
+            <div class="metric-row">
+                <span>CPU Allocation</span>
+                <span style="font-weight:600; color:var(--text-main);">${vm.CPUs} vCPUs</span>
             </div>
-            <div style="margin-top:20px; display:flex; gap:8px; border-top:1px solid var(--border-color); padding-top:16px;">
-                <button class="btn btn-outline" onclick="action('launch', '${vm.Name}')" style="padding:6px 12px; font-size:0.75rem;">Start</button>
-                <button class="btn btn-outline" onclick="action('stop', '${vm.Name}')" style="padding:6px 12px; font-size:0.75rem;">Stop</button>
-                <button class="btn btn-outline" onclick="openEdit('${vm.Name}')" style="padding:6px 12px; font-size:0.75rem;">Edit</button>
-                <button class="btn btn-danger" onclick="action('delete', '${vm.Name}')" style="padding:6px 12px; font-size:0.75rem;">Delete</button>
+
+            <div class="metric-row" style="margin-bottom:4px;">
+                <span>Memory (RAM)</span>
+                <span style="font-weight:600; color:var(--text-main);">${vm.MemoryUsage || 0} / ${vm.MemoryMB} MB</span>
+            </div>
+            <div class="progress-bg"><div class="progress-fill" style="width:${memPerc}%"></div></div>
+
+            <div style="margin-top:20px; font-size:0.8rem; color:var(--text-muted);">
+                IP Address: <span style="color:var(--text-main); font-weight:600;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : '-'}</span>
+            </div>
+
+            <div style="margin-top:24px; display:flex; gap:8px; flex-wrap:wrap; border-top:1px solid var(--light-border); padding-top:16px;">
+                <button class="btn" onclick="action('launch', '${vm.Name}')" style="flex:1;">Start</button>
+                <button class="btn" onclick="action('stop', '${vm.Name}')" style="flex:1;">Stop</button>
+                <button class="btn" onclick="openEdit('${vm.Name}')">Edit</button>
+                <button class="btn btn-danger" onclick="action('delete', '${vm.Name}')">Remove</button>
             </div>
         `;
         grid.appendChild(card);
@@ -86,14 +101,15 @@ async function deployInstance() {
         body: JSON.stringify(data)
     });
     if (res.ok) showTab('instances');
-    else {
-        const err = await res.json();
-        alert("Provisioning failed: " + err.error);
-    }
+    else alert("Provisioning Error: " + (await res.json()).error);
 }
 
-function openEdit(name) {
+async function openEdit(name) {
+    const res = await fetch(`/api/v1/info/${name}`);
+    const info = await res.json();
     document.getElementById('edit-target-name').innerText = name;
+    document.getElementById('edit-cpu').value = info.CPUs;
+    document.getElementById('edit-ram').value = info.MemoryMB;
     showTab('edit');
 }
 
@@ -103,12 +119,13 @@ async function updateInstance() {
         cpus: parseInt(document.getElementById('edit-cpu').value),
         memory_mb: parseInt(document.getElementById('edit-ram').value)
     };
-    await fetch(`/api/v1/update/${name}`, {
+    const res = await fetch(`/api/v1/update/${name}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     });
-    showTab('instances');
+    if (res.ok) showTab('instances');
+    else alert("Update Error: " + (await res.json()).error);
 }
 
 async function action(type, name) {
@@ -122,11 +139,11 @@ async function fetchImages() {
     const list = document.getElementById('image-list');
     list.innerHTML = data.map(img => `
         <div class="card">
-            <h3 style="margin-bottom:10px;">${img.Name}</h3>
-            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:15px;">Size: ${(img.Size / 1024 / 1024).toFixed(2)} MB</p>
-            <div style="display:flex; gap:10px;">
-                <button class="btn btn-outline" onclick="renameImage('${img.Name}')" style="font-size:0.7rem; padding:5px 10px;">Rename</button>
-                <button class="btn btn-danger" onclick="deleteImage('${img.Name}')" style="font-size:0.7rem; padding:5px 10px;">Remove</button>
+            <h3 style="margin-bottom:8px;">${img.Name}</h3>
+            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(2)} MB</p>
+            <div style="display:flex; gap:8px;">
+                <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1;">Rename</button>
+                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1;">Delete</button>
             </div>
         </div>
     `).join('');
@@ -143,15 +160,35 @@ async function addImage() {
     fetchImages();
 }
 
+async function removeImage(name) {
+    if (!confirm(`Remove image ${name}?`)) return;
+    await fetch(`/api/v1/images/${name}`, { method: 'DELETE' });
+    fetchImages();
+}
+
+async function renameImage(name) {
+    const newName = prompt("New name for " + name, name);
+    if (!newName) return;
+    await fetch('/api/v1/images/rename', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_name: name, new_name: newName })
+    });
+    fetchImages();
+}
+
 async function fetchUsers() {
     const res = await fetch('/api/v1/users');
     const data = await res.json();
     const list = document.getElementById('user-list');
     list.innerHTML = data.map(u => `
         <div class="card">
-            <h3 style="margin-bottom:6px;">${u.username}</h3>
-            <p style="color:var(--text-muted); margin-bottom:16px;">${u.email}</p>
-            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="font-size:0.7rem; padding:5px 10px;">Delete Account</button>
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <svg viewBox="0 0 24 24" style="width:32px; height:32px; fill:var(--primary-blue);"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                <h3 style="margin:0;">${u.username}</h3>
+            </div>
+            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:20px;">${u.email}</p>
+            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%;">Remove Account</button>
         </div>
     `).join('');
 }
@@ -169,21 +206,23 @@ async function addUser() {
 
 async function deleteUser(user) {
     if (!confirm(`Delete user ${user}?`)) return;
-    await fetch(`/api/v1/users/${user}`, { method: 'DELETE' });
+    const res = await fetch(`/api/v1/users/${user}`, { method: 'DELETE' });
+    if (!res.ok) alert((await res.json()).error);
     fetchUsers();
 }
 
 async function fetchLogs() {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
-    const body = document.getElementById('log-body');
-    body.innerHTML = data.map(l => `
-        <tr>
-            <td>${l.timestamp}</td>
-            <td style="font-weight:600;">${l.user}</td>
-            <td style="color:var(--text-muted);">${l.ip}</td>
-            <td><span style="color:var(--primary-blue); font-weight:700; font-size:0.7rem;">${l.action.toUpperCase()}</span></td>
-            <td>${l.target}</td>
-        </tr>
+    const list = document.getElementById('log-list');
+    list.innerHTML = data.map(l => `
+        <div class="card audit-card">
+            <div class="audit-time">${l.timestamp} (IP: ${l.ip})</div>
+            <div>
+                <span class="audit-action">${l.action.toUpperCase()}</span>
+                on <span style="font-weight:600;">${l.target}</span>
+                by <span style="color:var(--text-muted);">${l.user}</span>
+            </div>
+        </div>
     `).join('');
 }

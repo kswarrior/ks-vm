@@ -390,13 +390,15 @@ func (m *Manager) Update(name string, memoryMB, cpus uint) error {
 
 // VMInfo contains information about an instance.
 type VMInfo struct {
-	Name      string
-	Status    string
-	Type      string
-	IPs       []string
-	CPUs      uint
-	MemoryMB  uint
-	DiskUsage int64
+	Name        string
+	Status      string
+	Type        string
+	IPs         []string
+	CPUs        uint
+	MemoryMB    uint
+	MemoryUsage uint
+	DiskGB      uint
+	DiskUsage   int64
 }
 
 // Delete stops, destroys, and removes the VM/Container and its storage.
@@ -664,6 +666,7 @@ func (m *Manager) Shell(name string) error {
 	if err != nil {
 		running, pid := m.isContainerRunning(name)
 		if running {
+			// All namespaces: m=mount, u=uts, i=ipc, n=net, p=pid
 			cmd := exec.Command("nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "-u", "-i", "-n", "-p", "/bin/sh")
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return cmd.Run()
@@ -810,12 +813,16 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		status := "Unknown"
 		switch state {
 		case libvirt.DOMAIN_RUNNING:
-			status = "Running"
+			status = "running"
 		case libvirt.DOMAIN_PAUSED:
-			status = "Paused"
+			status = "paused"
 		case libvirt.DOMAIN_SHUTOFF:
-			status = "Stopped"
+			status = "stopped"
 		}
+		if m.isDeploying(name) {
+			status = "deploying"
+		}
+
 		var ips []string
 		ifaces, _ := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
 		for _, iface := range ifaces {
@@ -828,9 +835,21 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		if err == nil {
 			diskUsage = fi.Size()
 		}
+
+		memUsage := uint(0)
+		if state == libvirt.DOMAIN_RUNNING {
+			stats, _ := domain.MemoryStats(10, 0)
+			for _, s := range stats {
+				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_RSS) {
+					memUsage = uint(s.Val / 1024)
+				}
+			}
+		}
+
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
-			CPUs: uint(info.NrVirtCpu), MemoryMB: uint(info.MaxMem / 1024), DiskUsage: diskUsage,
+			CPUs: uint(info.NrVirtCpu), MemoryMB: uint(info.MaxMem / 1024),
+			MemoryUsage: memUsage, DiskUsage: diskUsage,
 		}, nil
 	}
 
