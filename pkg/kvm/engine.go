@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/term"
 	"ksvm/pkg/container"
+	"ksvm/pkg/web"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 )
@@ -239,8 +240,8 @@ func (m *Manager) Launch(name string) error {
 
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if _, err := os.Stat(destDir); err == nil {
-		running, _ := m.isContainerRunning(name)
-		if running {
+		alreadyRunning, _ := m.isContainerRunning(name)
+		if alreadyRunning {
 			return fmt.Errorf("container %s is already running", name)
 		}
 
@@ -255,11 +256,19 @@ func (m *Manager) Launch(name string) error {
 			return fmt.Errorf("failed to start container: %v", err)
 		}
 
-		// Verify liveness
-		time.Sleep(200 * time.Millisecond)
-		if r, _ := m.isContainerRunning(name); !r {
+		// Verify liveness with retries
+		var isRunning bool
+		for i := 0; i < 5; i++ {
+			time.Sleep(200 * time.Millisecond)
+			if r, _ := m.isContainerRunning(name); r {
+				isRunning = true
+				break
+			}
+		}
+
+		if !isRunning {
 			logData, _ := os.ReadFile(filepath.Join(destDir, "container.log"))
-			return fmt.Errorf("container exited immediately. Check /var/lib/ksvm/containers/%s/container.log. Last log: %s", name, string(logData))
+			return fmt.Errorf("container failed to stay alive. Check /var/lib/ksvm/containers/%s/container.log. Last log: %s", name, string(logData))
 		}
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
@@ -605,8 +614,8 @@ func (m *Manager) Shell(name string) error {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	fmt.Printf("\r\n--- CONNECTED TO %s SERIAL CONSOLE ---\r\n", strings.ToUpper(name))
-	fmt.Printf("--- Press Enter if no prompt appears. Exit with Ctrl+C ---\r\n\n")
+	fmt.Print("\r")
+	web.PrintShellBanner(name)
 
 	// Trigger a prompt by sending a newline after a short delay
 	go func() {
