@@ -395,10 +395,12 @@ type VMInfo struct {
 	Type        string
 	IPs         []string
 	CPUs        uint
+	CPUUsage    float64
 	MemoryMB    uint
 	MemoryUsage uint
 	DiskGB      uint
 	DiskUsage   int64
+	Image       string
 }
 
 // Delete stops, destroys, and removes the VM/Container and its storage.
@@ -848,8 +850,10 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
-			CPUs: uint(info.NrVirtCpu), MemoryMB: uint(info.MaxMem / 1024),
-			MemoryUsage: memUsage, DiskUsage: diskUsage,
+			CPUs: uint(info.NrVirtCpu), CPUUsage: 0.0, // Hard to calculate live CPU without interval
+			MemoryMB:    uint(info.MaxMem / 1024),
+			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: 0,
+			Image: "libvirt-image",
 		}, nil
 	}
 
@@ -872,7 +876,9 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		})
 		return &VMInfo{
 			Name: name, Status: meta["status"], Type: "container", IPs: []string{"internal"},
-			CPUs: 1, MemoryMB: 0, DiskUsage: rootfsUsage,
+			CPUs: 1, CPUUsage: 0.0, MemoryMB: 512, MemoryUsage: 0,
+			DiskUsage: rootfsUsage, DiskGB: 1,
+			Image: meta["image"],
 		}, nil
 	}
 	return nil, fmt.Errorf("instance %s not found", name)

@@ -21,6 +21,7 @@ type ImageInfo struct {
 	Size    int64
 	AddedAt time.Time
 	Path    string
+	Type    string // "vm" or "container"
 }
 
 // DownloadImage downloads an image from a URL with a progress bar.

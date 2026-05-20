@@ -326,6 +326,7 @@ func (a *API) addImage(c *gin.Context) {
 	var req struct {
 		Name string `json:"name" binding:"required"`
 		URL  string `json:"url" binding:"required"`
+		Type string `json:"type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

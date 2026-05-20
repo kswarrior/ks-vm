@@ -1,3 +1,5 @@
+let allImages = [];
+
 document.addEventListener('DOMContentLoaded', () => {
     const tabs = document.querySelectorAll('.nav-item');
     tabs.forEach(tab => {
@@ -17,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 4000);
 
     fetchInstances();
+    preloadImages();
 });
 
 function showTab(tabId) {
@@ -45,50 +48,108 @@ async function fetchInstances() {
         card.className = 'card';
         const statusClass = `status-${vm.Status}`;
 
-        // Simple usage calculation for UI
+        const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
+        const memTotal = (vm.MemoryMB / 1024).toFixed(1);
         const memPerc = vm.MemoryUsage && vm.MemoryMB ? (vm.MemoryUsage / vm.MemoryMB * 100).toFixed(0) : 0;
 
+        const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
+
         card.innerHTML = `
-            <div style="display:flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
-                <div>
-                    <h3 style="margin:0; font-size:1.15rem;">${vm.Name}</h3>
-                    <div style="margin-top:6px; display:flex; gap:6px;">
-                        <span class="badge badge-vm">${vm.Type}</span>
+            <div class="instance-header">
+                <div class="instance-title">${vm.Name}</div>
+                <div class="instance-status ${statusClass}">${vm.Status}</div>
+            </div>
+
+            <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
+                <div style="font-size:0.75rem; font-weight:600; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">${vm.Type.toUpperCase()}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-label">
+                        <svg style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M2 17h20v2H2zm1.15-4.05L4 14h16l.85-1.05-1.2-1.5L18.8 12H5.2l-.85-.55zm1.3-1.6L4.5 12h15l.05-.65-1.2-1.5L17.5 10H6.5l-.85-.15zM7 2h10v2H7zm0 13h10v2H7z"/></svg>
+                        RAM: ${memUsed} / ${memTotal} GB
                     </div>
+                    <div class="progress-bar"><div class="progress-inner" style="width:${memPerc}%"></div></div>
                 </div>
-                <span class="badge ${statusClass}">${vm.Status}</span>
+                <div class="stat-box">
+                    <div class="stat-label">
+                        <svg style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
+                        CPU: ${vm.CPUUsage || 0}% / ${vm.CPUs} Core
+                    </div>
+                    <div class="progress-bar"><div class="progress-inner" style="width:${vm.CPUUsage || 0}%"></div></div>
+                </div>
             </div>
 
-            <div class="metric-row">
-                <span>CPU Allocation</span>
-                <span style="font-weight:600; color:var(--text-main);">${vm.CPUs} vCPUs</span>
+            <div class="stat-box" style="margin-top:16px;">
+                <div class="stat-label">
+                    <svg style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+                    Disk: ${diskUsed} GB / ${vm.DiskGB || '-'} GB
+                </div>
             </div>
 
-            <div class="metric-row" style="margin-bottom:4px;">
-                <span>Memory (RAM)</span>
-                <span style="font-weight:600; color:var(--text-main);">${vm.MemoryUsage || 0} / ${vm.MemoryMB} MB</span>
-            </div>
-            <div class="progress-bg"><div class="progress-fill" style="width:${memPerc}%"></div></div>
-
-            <div style="margin-top:20px; font-size:0.8rem; color:var(--text-muted);">
-                IP Address: <span style="color:var(--text-main); font-weight:600;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : '-'}</span>
-            </div>
-
-            <div style="margin-top:24px; display:flex; gap:8px; flex-wrap:wrap; border-top:1px solid var(--light-border); padding-top:16px;">
-                <button class="btn" onclick="action('launch', '${vm.Name}')" style="flex:1;">Start</button>
-                <button class="btn" onclick="action('stop', '${vm.Name}')" style="flex:1;">Stop</button>
-                <button class="btn" onclick="openEdit('${vm.Name}')">Edit</button>
-                <button class="btn btn-danger" onclick="action('delete', '${vm.Name}')">Remove</button>
+            <div class="actions-menu">
+                <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
+                    <svg style="width:20px;height:20px;" viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
+                </button>
+                <div id="dropdown-${vm.Name}" class="dropdown">
+                    <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
+                    <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
+                    <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
+                    <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
+                    <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
+                </div>
             </div>
         `;
         grid.appendChild(card);
     });
 }
 
+function toggleDropdown(e, name) {
+    e.stopPropagation();
+    document.querySelectorAll('.dropdown').forEach(d => {
+        if (d.id !== 'dropdown-' + name) d.classList.remove('show');
+    });
+    document.getElementById('dropdown-' + name).classList.toggle('show');
+}
+
+window.onclick = () => {
+    document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('show'));
+    document.getElementById('image-dropdown').style.display = 'none';
+};
+
+async function preloadImages() {
+    const res = await fetch('/api/v1/images');
+    allImages = await res.json();
+}
+
+function filterImages() {
+    const query = document.getElementById('image-search').value.toLowerCase();
+    const dd = document.getElementById('image-dropdown');
+    const filtered = allImages.filter(img => img.Name.toLowerCase().includes(query));
+
+    if (filtered.length > 0 && query.length > 0) {
+        dd.style.display = 'block';
+        dd.innerHTML = filtered.map(img => `
+            <div class="dropdown-item" onclick="selectImage('${img.Name}')">
+                ${img.Name} <span style="font-size:0.7rem; color:#888;">(${img.Type})</span>
+            </div>
+        `).join('');
+    } else dd.style.display = 'none';
+}
+
+function selectImage(name) {
+    document.getElementById('image-search').value = name;
+    document.getElementById('deploy-image').value = name;
+    document.getElementById('image-dropdown').style.display = 'none';
+}
+
 async function deployInstance() {
     const data = {
         name: document.getElementById('deploy-name').value,
-        image: document.getElementById('deploy-image').value,
+        image: document.getElementById('deploy-image').value || document.getElementById('image-search').value,
         cpus: parseInt(document.getElementById('deploy-cpu').value),
         memory_mb: parseInt(document.getElementById('deploy-ram').value),
         disk_gb: parseInt(document.getElementById('deploy-disk').value),
@@ -101,31 +162,24 @@ async function deployInstance() {
         body: JSON.stringify(data)
     });
     if (res.ok) showTab('instances');
-    else alert("Provisioning Error: " + (await res.json()).error);
+    else alert("Error: " + (await res.json()).error);
 }
 
 async function openEdit(name) {
     const res = await fetch(`/api/v1/info/${name}`);
     const info = await res.json();
-    document.getElementById('edit-target-name').innerText = name;
+    document.getElementById('edit-title').innerText = "Edit: " + name;
     document.getElementById('edit-cpu').value = info.CPUs;
     document.getElementById('edit-ram').value = info.MemoryMB;
     showTab('edit');
 }
 
 async function updateInstance() {
-    const name = document.getElementById('edit-target-name').innerText;
-    const data = {
-        cpus: parseInt(document.getElementById('edit-cpu').value),
-        memory_mb: parseInt(document.getElementById('edit-ram').value)
-    };
-    const res = await fetch(`/api/v1/update/${name}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
+    const name = document.getElementById('edit-title').innerText.split(': ')[1];
+    const data = { cpus: parseInt(document.getElementById('edit-cpu').value), memory_mb: parseInt(document.getElementById('edit-ram').value) };
+    const res = await fetch(`/api/v1/update/${name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     if (res.ok) showTab('instances');
-    else alert("Update Error: " + (await res.json()).error);
+    else alert("Error: " + (await res.json()).error);
 }
 
 async function action(type, name) {
@@ -135,15 +189,18 @@ async function action(type, name) {
 
 async function fetchImages() {
     const res = await fetch('/api/v1/images');
-    const data = await res.json();
+    allImages = await res.json();
     const list = document.getElementById('image-list');
-    list.innerHTML = data.map(img => `
+    list.innerHTML = allImages.map(img => `
         <div class="card">
-            <h3 style="margin-bottom:8px;">${img.Name}</h3>
-            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(2)} MB</p>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0;">${img.Name}</h3>
+                <span class="badge" style="color:var(--primary);">${img.Type || 'VM'}</span>
+            </div>
+            <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(2)} MB</p>
             <div style="display:flex; gap:8px;">
-                <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1;">Rename</button>
-                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1;">Delete</button>
+                <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
+                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
             </div>
         </div>
     `).join('');
@@ -154,7 +211,11 @@ function showAddImageForm(show = true) {
 }
 
 async function addImage() {
-    const data = { name: document.getElementById('img-name').value, url: document.getElementById('img-url').value };
+    const data = {
+        name: document.getElementById('img-name').value,
+        url: document.getElementById('img-url').value,
+        type: document.getElementById('img-type').value
+    };
     await fetch('/api/v1/images', { method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'} });
     showAddImageForm(false);
     fetchImages();
@@ -169,11 +230,7 @@ async function removeImage(name) {
 async function renameImage(name) {
     const newName = prompt("New name for " + name, name);
     if (!newName) return;
-    await fetch('/api/v1/images/rename', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ old_name: name, new_name: newName })
-    });
+    await fetch('/api/v1/images/rename', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_name: name, new_name: newName }) });
     fetchImages();
 }
 
@@ -183,12 +240,14 @@ async function fetchUsers() {
     const list = document.getElementById('user-list');
     list.innerHTML = data.map(u => `
         <div class="card">
-            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
-                <svg viewBox="0 0 24 24" style="width:32px; height:32px; fill:var(--primary-blue);"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                <h3 style="margin:0;">${u.username}</h3>
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:700;">${u.username[0].toUpperCase()}</div>
+                <div>
+                    <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">${u.email}</div>
+                </div>
             </div>
-            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:20px;">${u.email}</p>
-            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%;">Remove Account</button>
+            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem;">Delete User</button>
         </div>
     `).join('');
 }
@@ -216,13 +275,12 @@ async function fetchLogs() {
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => `
-        <div class="card audit-card">
-            <div class="audit-time">${l.timestamp} (IP: ${l.ip})</div>
+        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center;">
             <div>
-                <span class="audit-action">${l.action.toUpperCase()}</span>
-                on <span style="font-weight:600;">${l.target}</span>
-                by <span style="color:var(--text-muted);">${l.user}</span>
+                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
+                <div style="font-weight:600;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
             </div>
+            <div style="font-size:0.8rem; font-weight:700;">${l.user.toUpperCase()}</div>
         </div>
     `).join('');
 }
