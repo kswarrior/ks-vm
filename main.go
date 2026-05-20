@@ -30,12 +30,18 @@ var portMap string
 
 var deployUser string
 var deployPass string
+var deployCPU uint
+var deployRAM uint
+var deployDisk uint
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&portMap, "port", "P", "", "Multi-service port mapping (e.g. w:8080 m:5050)")
 
 	deployCmd.Flags().StringVarP(&deployUser, "user", "u", "", "Default guest user to create via Cloud-Init")
 	deployCmd.Flags().StringVarP(&deployPass, "pass", "p", "", "Default guest password via Cloud-Init")
+	deployCmd.Flags().UintVar(&deployCPU, "cpu", 1, "Number of vCPUs")
+	deployCmd.Flags().UintVar(&deployRAM, "ram", 1024, "Memory in MiB")
+	deployCmd.Flags().UintVar(&deployDisk, "disk", 0, "Disk size in GB (0 to use base image size)")
 
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(launchCmd)
@@ -82,6 +88,9 @@ var deployCmd = &cobra.Command{
 		opts := kvm.DeployOptions{
 			User:     deployUser,
 			Password: deployPass,
+			CPUs:     deployCPU,
+			MemoryMB: deployRAM,
+			DiskGB:   deployDisk,
 		}
 		if err := manager.Deploy(name, image, opts); err != nil {
 			fmt.Printf("Error: %v\n", err)

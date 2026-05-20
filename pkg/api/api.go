@@ -134,6 +134,9 @@ func (a *API) deployInstance(c *gin.Context) {
 		Image    string `json:"image" binding:"required"`
 		User     string `json:"user"`
 		Password string `json:"password"`
+		CPUs     uint   `json:"cpus"`
+		MemoryMB uint   `json:"memory_mb"`
+		DiskGB   uint   `json:"disk_gb"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -142,6 +145,9 @@ func (a *API) deployInstance(c *gin.Context) {
 	opts := kvm.DeployOptions{
 		User:     req.User,
 		Password: req.Password,
+		CPUs:     req.CPUs,
+		MemoryMB: req.MemoryMB,
+		DiskGB:   req.DiskGB,
 	}
 	if err := a.manager.Deploy(req.Name, req.Image, opts); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

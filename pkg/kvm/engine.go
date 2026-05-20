@@ -54,6 +54,9 @@ func (m *Manager) Close() error {
 type DeployOptions struct {
 	User     string
 	Password string
+	CPUs     uint
+	MemoryMB uint
+	DiskGB   uint
 }
 
 // Deploy creates a new VM or Container instance.
@@ -107,6 +110,9 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 
 	// 4. Create QCOW2 overlay
 	cmd := exec.Command("qemu-img", "create", "-f", "qcow2", "-b", imagePath, "-F", "qcow2", diskPath)
+	if opts.DiskGB > 0 {
+		cmd.Args = append(cmd.Args, fmt.Sprintf("%dG", opts.DiskGB))
+	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create overlay disk: %v, output: %s", err, string(output))
 	}
@@ -122,10 +128,19 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	// 6. Generate XML
+	mem := opts.MemoryMB
+	if mem == 0 {
+		mem = 1024
+	}
+	cpus := opts.CPUs
+	if cpus == 0 {
+		cpus = 1
+	}
+
 	config := VMConfig{
 		Name:            name,
-		MemoryMB:        1024,
-		CPUs:            1,
+		MemoryMB:        mem,
+		CPUs:            cpus,
 		DiskPath:        diskPath,
 		ConfigDrivePath: configDrivePath,
 	}

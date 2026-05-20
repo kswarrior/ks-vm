@@ -2,60 +2,99 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, dvh=100">
-    <title>ksvm | Cyber Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ksvm | Management Console</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="cyber-bg">
-    <header class="sticky-header glassmorphic">
-        <div class="logo">KSVM_SYS</div>
-        <button id="menu-toggle" class="hamburger">
-            <span></span><span></span><span></span>
-        </button>
+<body>
+    <header class="sticky-header">
+        <div class="logo">KSVM PANEL</div>
+        <div id="status-bar" style="font-size: 0.8em; color: var(--secondary-color);">Connected to hypervisor</div>
     </header>
 
     <div class="container">
-        <aside id="sidebar" class="collapsing-sidebar glassmorphic">
+        <aside class="sidebar">
             <nav>
                 <ul>
-                    <li class="active" data-tab="instances">INSTANCES</li>
-                    <li data-tab="monitor">MONITOR</li>
-                    <li data-tab="images">IMAGES</li>
-                    <li data-tab="users">USERS</li>
-                    <li data-tab="log">LOG</li>
+                    <li class="active" data-tab="instances">Instances</li>
+                    <li data-tab="deploy">Deploy New</li>
+                    <li data-tab="images">Images</li>
+                    <li data-tab="monitor">Monitor</li>
+                    <li data-tab="users">Users</li>
+                    <li data-tab="log">Audit Log</li>
                 </ul>
             </nav>
         </aside>
 
         <main id="content">
             <div id="instances" class="tab-content active">
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px;">
-                    <h2>Active Instances</h2>
-                    <button class="glassmorphic" onclick="showDeployForm()" style="padding: 10px 20px; color: var(--accent-color); cursor: pointer;">+ DEPLOY NEW</button>
-                </div>
+                <h2>Active Instances</h2>
+                <div class="grid" id="instance-grid"></div>
+            </div>
 
-                <div id="deploy-form" class="card glassmorphic" style="display: none; margin: 20px;">
-                    <h3>Deploy Instance</h3>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <input type="text" id="deploy-name" placeholder="Instance Name">
-                        <input type="text" id="deploy-image" placeholder="Image (e.g. docker://nginx)">
-                        <button onclick="deployInstance()">DEPLOY</button>
-                        <button onclick="showDeployForm(false)">CANCEL</button>
+            <div id="deploy" class="tab-content">
+                <h2>Deploy New Instance</h2>
+                <div class="card" style="max-width: 600px;">
+                    <input type="text" id="deploy-name" placeholder="Instance Name (e.g. web-prod)">
+                    <input type="text" id="deploy-image" placeholder="Image (e.g. focal or docker://nginx)">
+
+                    <div class="form-row">
+                        <div>
+                            <label>CPUs</label>
+                            <input type="number" id="deploy-cpu" value="1">
+                        </div>
+                        <div>
+                            <label>RAM (MiB)</label>
+                            <input type="number" id="deploy-ram" value="1024">
+                        </div>
                     </div>
-                </div>
 
-                <div class="grid" id="instance-grid">
-                    <!-- Dynamic Cards -->
+                    <div class="form-row">
+                        <div>
+                            <label>Disk (GB)</label>
+                            <input type="number" id="deploy-disk" value="0">
+                        </div>
+                        <div>
+                            <label>Guest User</label>
+                            <input type="text" id="deploy-user" placeholder="ubuntu">
+                        </div>
+                    </div>
+
+                    <label>Guest Password</label>
+                    <input type="password" id="deploy-pass">
+
+                    <button onclick="deployInstance()" style="width: 100%; margin-top: 10px;">PROVISION INSTANCE</button>
+                </div>
+            </div>
+
+            <div id="edit" class="tab-content">
+                <h2>Edit Instance: <span id="edit-target-name">--</span></h2>
+                <div class="card" style="max-width: 600px;">
+                    <div class="form-row">
+                        <div>
+                            <label>CPUs</label>
+                            <input type="number" id="edit-cpu">
+                        </div>
+                        <div>
+                            <label>RAM (MiB)</label>
+                            <input type="number" id="edit-ram">
+                        </div>
+                    </div>
+                    <button onclick="updateInstance()" style="width: 100%;">SAVE CHANGES</button>
+                    <button onclick="showTab('instances')" style="width: 100%; margin-top: 10px; border-color: var(--secondary-color); color: var(--secondary-color);">CANCEL</button>
                 </div>
             </div>
 
             <div id="monitor" class="tab-content">
                 <h2>System Monitor</h2>
                 <div class="grid">
-                    <div class="card glassmorphic">
-                        <h3>Host Resource Usage</h3>
-                        <p>CPU: <span id="cpu-usage">--</span>%</p>
-                        <p>RAM: <span id="ram-usage">--</span> MiB</p>
+                    <div class="card">
+                        <h3>CPU Usage</h3>
+                        <p id="cpu-usage">-- %</p>
+                    </div>
+                    <div class="card">
+                        <h3>Memory Usage</h3>
+                        <p id="ram-usage">-- MiB</p>
                     </div>
                 </div>
             </div>
@@ -66,31 +105,13 @@
             </div>
 
             <div id="users" class="tab-content">
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px;">
-                    <h2>User Management</h2>
-                    <button class="glassmorphic" onclick="showUserForm()">+ ADD USER</button>
-                </div>
-
-                <div id="user-form" class="card glassmorphic" style="display: none; margin: 20px;">
-                    <h3>New User Identity</h3>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <input type="text" id="user-name" placeholder="Username">
-                        <input type="email" id="user-email" placeholder="Email">
-                        <input type="password" id="user-pass" placeholder="Password">
-                        <input type="text" id="user-perms" placeholder="Permissions (e.g. read,write)">
-                        <button onclick="createUser()">INITIALIZE</button>
-                        <button onclick="showUserForm(false)">ABORT</button>
-                    </div>
-                </div>
-
+                <h2>User Management</h2>
                 <div id="user-list" class="grid"></div>
             </div>
 
             <div id="log" class="tab-content">
                 <h2>Audit Log</h2>
-                <div id="audit-log" class="glassmorphic" style="padding: 20px; min-height: 300px; font-family: monospace; white-space: pre-wrap;">
-                    <!-- Logs injected here -->
-                </div>
+                <div id="audit-log" class="card"></div>
             </div>
         </main>
     </div>

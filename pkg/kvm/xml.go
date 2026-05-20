@@ -18,12 +18,16 @@ type VMConfig struct {
 	DiskPath          string
 	ConfigDrivePath   string
 	SharedFilesystems []SharedFS
+	Type              string // "kvm" or "qemu"
 }
 
 // GenerateDomainXML generates the libvirt XML for a domain.
 func GenerateDomainXML(config VMConfig) (string, error) {
+	if config.Type == "" {
+		config.Type = "kvm"
+	}
 	domain := &libvirtxml.Domain{
-		Type: "kvm",
+		Type: config.Type,
 		Name: config.Name,
 		Memory: &libvirtxml.DomainMemory{
 			Value: config.MemoryMB,
