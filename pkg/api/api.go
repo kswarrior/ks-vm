@@ -66,6 +66,8 @@ func (a *API) Register(r *gin.Engine) {
 		v1.GET("/instances", a.listInstances)
 		v1.GET("/images", a.listImages)
 		v1.POST("/images", a.addImage)
+		v1.PUT("/images/rename", a.renameImage)
+		v1.DELETE("/images/:name", a.removeImage)
 		v1.GET("/info/:name", a.getInstanceInfo)
 
 		// Lifecycle Actions
@@ -82,6 +84,7 @@ func (a *API) Register(r *gin.Engine) {
 		v1.GET("/monitor", a.getMonitorData)
 		v1.GET("/users", a.listUsers)
 		v1.POST("/users", a.createUser)
+		v1.DELETE("/users/:username", a.deleteUser)
 		v1.GET("/logs", a.getAuditLogs)
 		v1.POST("/logs/undo/:id", a.undoAction)
 	}
@@ -90,10 +93,16 @@ func (a *API) Register(r *gin.Engine) {
 func (a *API) addLog(c *gin.Context, action, target string) {
 	a.lMu.Lock()
 	defer a.lMu.Unlock()
+
+	user, _, _ := c.Request.BasicAuth()
+	if user == "" {
+		user = "system"
+	}
+
 	entry := LogEntry{
 		ID:        len(a.logs),
 		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
-		User:      "admin", // Placeholder
+		User:      user,
 		IP:        c.ClientIP(),
 		Action:    action,
 		Target:    target,
@@ -320,4 +329,57 @@ func (a *API) addImage(c *gin.Context) {
 	}
 	a.addLog(c, "add_image", req.Name)
 	c.JSON(http.StatusCreated, gin.H{"message": "Image added"})
+}
+
+func (a *API) renameImage(c *gin.Context) {
+	var req struct {
+		OldName string `json:"old_name" binding:"required"`
+		NewName string `json:"new_name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	oldPath := filepath.Join(kvm.ImagesDir, req.OldName)
+	newPath := filepath.Join(kvm.ImagesDir, req.NewName)
+	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+		oldPath += ".qcow2"
+		newPath += ".qcow2"
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	a.addLog(c, "rename_image", req.OldName+" -> "+req.NewName)
+	c.JSON(http.StatusOK, gin.H{"message": "Image renamed"})
+}
+
+func (a *API) removeImage(c *gin.Context) {
+	name := c.Param("name")
+	if err := a.manager.RemoveImage(name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	a.addLog(c, "remove_image", name)
+	c.JSON(http.StatusOK, gin.H{"message": "Image removed"})
+}
+
+func (a *API) deleteUser(c *gin.Context) {
+	username := c.Param("username")
+	if username == "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Master user cannot be deleted"})
+		return
+	}
+	a.uMu.Lock()
+	defer a.uMu.Unlock()
+	for i, u := range a.users {
+		if u.Username == username {
+			a.users = append(a.users[:i], a.users[i+1:]...)
+			a.saveUsers()
+			a.addLog(c, "delete_user", username)
+			c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 }

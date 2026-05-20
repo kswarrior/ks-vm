@@ -61,7 +61,7 @@ type DeployOptions struct {
 
 // Deploy creates a new VM or Container instance.
 func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
-	m.updateContainerStatus(name, "deploying")
+	m.setDeployingStatus(name)
 	// 1. Image Type Detection & Resolution
 	var imagePath string
 	isVM := false
@@ -162,20 +162,13 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	deployed = true
-
-	// Proactively trigger the serial console connection setup in the background
-	go func() {
-		// Wait for the VM to boot a bit
-		time.Sleep(2 * time.Second)
-		m.Shell(name) // This will send the trigger newline and setup the stream
-	}()
+	m.clearDeployingStatus(name)
 
 	return nil
 }
 
 // DeployContainer provisions a container instance.
 func (m *Manager) DeployContainer(name, image string) error {
-	m.updateContainerStatus(name, "deploying")
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -205,6 +198,7 @@ func (m *Manager) DeployContainer(name, image string) error {
 		return err
 	}
 	deployed = true
+	m.clearDeployingStatus(name)
 	return nil
 }
 
@@ -233,6 +227,21 @@ func (m *Manager) isContainerRunning(name string) (bool, int) {
 		return false, 0
 	}
 	return true, pid
+}
+
+func (m *Manager) setDeployingStatus(name string) {
+	dir := filepath.Join(BaseDir, "deploying")
+	os.MkdirAll(dir, 0755)
+	os.WriteFile(filepath.Join(dir, name), []byte(time.Now().Format(time.RFC3339)), 0644)
+}
+
+func (m *Manager) clearDeployingStatus(name string) {
+	os.Remove(filepath.Join(BaseDir, "deploying", name))
+}
+
+func (m *Manager) isDeploying(name string) bool {
+	_, err := os.Stat(filepath.Join(BaseDir, "deploying", name))
+	return err == nil
 }
 
 func (m *Manager) updateContainerStatus(name, status string) {
@@ -859,13 +868,17 @@ func (m *Manager) List() ([]VMInfo, error) {
 			name, _ := domain.GetName()
 			state, _, _ := domain.GetState()
 			status := "Unknown"
-			switch state {
-			case libvirt.DOMAIN_RUNNING:
-				status = "running"
-			case libvirt.DOMAIN_PAUSED:
-				status = "paused"
-			case libvirt.DOMAIN_SHUTOFF:
-				status = "stopped"
+			if m.isDeploying(name) {
+				status = "deploying"
+			} else {
+				switch state {
+				case libvirt.DOMAIN_RUNNING:
+					status = "running"
+				case libvirt.DOMAIN_PAUSED:
+					status = "paused"
+				case libvirt.DOMAIN_SHUTOFF:
+					status = "stopped"
+				}
 			}
 			var ips []string
 			if status == "running" {
@@ -884,9 +897,13 @@ func (m *Manager) List() ([]VMInfo, error) {
 		if entry.IsDir() {
 			name := entry.Name()
 			status := "stopped"
-			running, _ := m.isContainerRunning(name)
-			if running {
-				status = "running"
+			if m.isDeploying(name) {
+				status = "deploying"
+			} else {
+				running, _ := m.isContainerRunning(name)
+				if running {
+					status = "running"
+				}
 			}
 			infos = append(infos, VMInfo{Name: name, Status: status, Type: "container"})
 		}

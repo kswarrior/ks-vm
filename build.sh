@@ -8,10 +8,13 @@ sudo apt-get update && sudo apt-get install -y libvirt-dev qemu-utils libvirt-da
 echo "--- Tidying Go modules..."
 go mod tidy
 
+echo "--- Formatting source code..."
+go fmt ./...
+
 echo "--- Compiling ksvm binary..."
 go build -o ksvm .
 
 echo "--- Finalizing..."
 sudo chmod +x ksvm
 
-echo "Success! Run './ksvm daemon' to start the management panel."
+echo "Success! Run './ksvm daemon --user admin --pass admin' to start the management panel."
