@@ -12,13 +12,19 @@ func (m *Manager) GenerateCloudInitISO(rootDir, user, password string) (string, 
 	userData := fmt.Sprintf(`#cloud-config
 users:
   - name: %s
-    password: %s
-    lock_passwd: false
-    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
     shell: /bin/bash
-chpasswd: { expire: False }
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    lock_passwd: false
+    passwd: %s
+chpasswd:
+  list: |
+    %s:%s
+  expire: False
 ssh_pwauth: True
-`, user, password)
+runcmd:
+  - echo "%s:%s" | chpasswd
+`, user, password, user, password, user, password)
 	metaData := fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n", filepath.Base(rootDir), filepath.Base(rootDir))
 
 	configDir := filepath.Join(rootDir, "cloud-init")
