@@ -17,10 +17,10 @@ const (
 
 // ImageInfo contains metadata about a registered base image.
 type ImageInfo struct {
-	Name      string
-	Size      int64
-	AddedAt   time.Time
-	Path      string
+	Name    string
+	Size    int64
+	AddedAt time.Time
+	Path    string
 }
 
 // DownloadImage downloads an image from a URL with a progress bar.

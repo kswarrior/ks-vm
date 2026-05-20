@@ -16,8 +16,10 @@ import (
 )
 
 type Config struct {
-	WebPort string
-	MuxPort string
+	WebPort    string
+	MuxPort    string
+	MasterUser string
+	MasterPass string
 }
 
 func Start(cfg Config) error {
@@ -29,6 +31,13 @@ func Start(cfg Config) error {
 
 	// 1. Setup Web Server
 	r := gin.Default()
+
+	// Auth Middleware
+	if cfg.MasterUser != "" {
+		r.Use(gin.BasicAuth(gin.Accounts{
+			cfg.MasterUser: cfg.MasterPass,
+		}))
+	}
 
 	// API
 	apiSvc := api.New(manager)

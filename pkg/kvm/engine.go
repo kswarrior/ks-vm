@@ -61,6 +61,7 @@ type DeployOptions struct {
 
 // Deploy creates a new VM or Container instance.
 func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
+	m.updateContainerStatus(name, "deploying")
 	// 1. Image Type Detection & Resolution
 	var imagePath string
 	isVM := false
@@ -161,11 +162,20 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	deployed = true
+
+	// Proactively trigger the serial console connection setup in the background
+	go func() {
+		// Wait for the VM to boot a bit
+		time.Sleep(2 * time.Second)
+		m.Shell(name) // This will send the trigger newline and setup the stream
+	}()
+
 	return nil
 }
 
 // DeployContainer provisions a container instance.
 func (m *Manager) DeployContainer(name, image string) error {
+	m.updateContainerStatus(name, "deploying")
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -342,22 +352,30 @@ func (m *Manager) Stop(name string) error {
 // Suspend pauses a running VM.
 func (m *Manager) Suspend(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil { return fmt.Errorf("suspend not supported for containers") }
+	if err != nil {
+		return fmt.Errorf("suspend not supported for containers")
+	}
 	return domain.Suspend()
 }
 
 // Resume continues a suspended VM.
 func (m *Manager) Resume(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil { return fmt.Errorf("resume not supported for containers") }
+	if err != nil {
+		return fmt.Errorf("resume not supported for containers")
+	}
 	return domain.Resume()
 }
 
 // Update modifies VM resources (CPU/Memory).
 func (m *Manager) Update(name string, memoryMB, cpus uint) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil { return fmt.Errorf("update not supported for containers") }
-	if err := domain.SetMemoryFlags(uint64(memoryMB)*1024, 0); err != nil { return err }
+	if err != nil {
+		return fmt.Errorf("update not supported for containers")
+	}
+	if err := domain.SetMemoryFlags(uint64(memoryMB)*1024, 0); err != nil {
+		return err
+	}
 	return domain.SetVcpusFlags(cpus, 0)
 }
 
@@ -377,8 +395,12 @@ func (m *Manager) Delete(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		isActive, err := domain.IsActive()
-		if err == nil && isActive { domain.Destroy() }
-		if err := domain.Undefine(); err != nil { return err }
+		if err == nil && isActive {
+			domain.Destroy()
+		}
+		if err := domain.Undefine(); err != nil {
+			return err
+		}
 		return os.RemoveAll(filepath.Join(BaseDir, "instances", name))
 	}
 
@@ -416,7 +438,9 @@ func (m *Manager) Restart(name string) error {
 	if err == nil {
 		if err := domain.Reboot(0); err != nil {
 			isActive, _ := domain.IsActive()
-			if isActive { return domain.Reset(0) }
+			if isActive {
+				return domain.Reset(0)
+			}
 			return err
 		}
 		return nil
@@ -437,9 +461,13 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 		destDir := filepath.Join(BaseDir, "containers", name)
 		if _, err := os.Stat(destDir); err == nil {
 			pidData, err := os.ReadFile(filepath.Join(destDir, "pid"))
-			if err != nil { return "", fmt.Errorf("container not running") }
+			if err != nil {
+				return "", fmt.Errorf("container not running")
+			}
 
-			if len(cmdArgs) == 0 { return "", fmt.Errorf("no command provided") }
+			if len(cmdArgs) == 0 {
+				return "", fmt.Errorf("no command provided")
+			}
 			cmd := exec.Command("nsenter", "-t", strings.TrimSpace(string(pidData)), "-m", "-u", "-i", "-n", "-p", "--")
 			cmd.Args = append(cmd.Args, cmdArgs...)
 			out, err := cmd.CombinedOutput()
@@ -458,22 +486,30 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	}
 	cmdJSON, _ := json.Marshal(execCmd)
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 
 	var startResult struct {
-		Return struct { PID int `json:"pid"` } `json:"return"`
+		Return struct {
+			PID int `json:"pid"`
+		} `json:"return"`
 	}
-	if err := json.Unmarshal([]byte(resp), &startResult); err != nil { return "", err }
+	if err := json.Unmarshal([]byte(resp), &startResult); err != nil {
+		return "", err
+	}
 	pid := startResult.Return.PID
 
 	for {
 		statusCmd := map[string]interface{}{
-			"execute": "guest-exec-status",
-			"arguments": map[string]interface{}{ "pid": pid },
+			"execute":   "guest-exec-status",
+			"arguments": map[string]interface{}{"pid": pid},
 		}
 		statusJSON, _ := json.Marshal(statusCmd)
 		statusResp, err := domain.QemuAgentCommand(string(statusJSON), -2, 0)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 
 		var statusResult struct {
 			Return struct {
@@ -483,14 +519,20 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 				ErrData  string `json:"err-data"`
 			} `json:"return"`
 		}
-		if err := json.Unmarshal([]byte(statusResp), &statusResult); err != nil { return "", err }
+		if err := json.Unmarshal([]byte(statusResp), &statusResult); err != nil {
+			return "", err
+		}
 
 		if statusResult.Return.Exited {
 			out, _ := base64.StdEncoding.DecodeString(statusResult.Return.OutData)
 			errData, _ := base64.StdEncoding.DecodeString(statusResult.Return.ErrData)
 			combined := string(out)
-			if len(errData) > 0 { combined += "\nSTDERR:\n" + string(errData) }
-			if statusResult.Return.ExitCode != 0 { return combined, fmt.Errorf("code %d", statusResult.Return.ExitCode) }
+			if len(errData) > 0 {
+				combined += "\nSTDERR:\n" + string(errData)
+			}
+			if statusResult.Return.ExitCode != 0 {
+				return combined, fmt.Errorf("code %d", statusResult.Return.ExitCode)
+			}
 			return combined, nil
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -505,10 +547,14 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 		if _, err := os.Stat(destDir); err == nil {
 			target := filepath.Join(destDir, "rootfs", guestPath)
 			src, err := os.Open(localPath)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			defer src.Close()
 			dst, err := os.Create(target)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			defer dst.Close()
 			_, err = io.Copy(dst, src)
 			return err
@@ -517,19 +563,27 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 	}
 
 	file, err := os.Open(localPath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer file.Close()
 
 	openCmd := map[string]interface{}{
-		"execute": "guest-file-open",
-		"arguments": map[string]interface{}{ "path": guestPath, "mode": "wb" },
+		"execute":   "guest-file-open",
+		"arguments": map[string]interface{}{"path": guestPath, "mode": "wb"},
 	}
 	openJSON, _ := json.Marshal(openCmd)
 	respOpen, err := domain.QemuAgentCommand(string(openJSON), -2, 0)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
-	var openResult struct { Return int `json:"return"` }
-	if err := json.Unmarshal([]byte(respOpen), &openResult); err != nil { return err }
+	var openResult struct {
+		Return int `json:"return"`
+	}
+	if err := json.Unmarshal([]byte(respOpen), &openResult); err != nil {
+		return err
+	}
 	handle := openResult.Return
 
 	buf := make([]byte, 32*1024)
@@ -538,19 +592,23 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 		if n > 0 {
 			encoded := base64.StdEncoding.EncodeToString(buf[:n])
 			writeCmd := map[string]interface{}{
-				"execute": "guest-file-write",
-				"arguments": map[string]interface{}{ "handle": handle, "buf-b64": encoded },
+				"execute":   "guest-file-write",
+				"arguments": map[string]interface{}{"handle": handle, "buf-b64": encoded},
 			}
 			writeJSON, _ := json.Marshal(writeCmd)
 			domain.QemuAgentCommand(string(writeJSON), -2, 0)
 		}
-		if err == io.EOF { break }
-		if err != nil { return err }
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
 	}
 
 	closeCmd := map[string]interface{}{
-		"execute": "guest-file-close",
-		"arguments": map[string]interface{}{ "handle": handle },
+		"execute":   "guest-file-close",
+		"arguments": map[string]interface{}{"handle": handle},
 	}
 	closeJSON, _ := json.Marshal(closeCmd)
 	domain.QemuAgentCommand(string(closeJSON), -2, 0)
@@ -560,10 +618,12 @@ func (m *Manager) Copy(name, localPath, guestPath string) error {
 // Umount detaches a shared directory.
 func (m *Manager) Umount(name, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil { return fmt.Errorf("not supported for containers") }
+	if err != nil {
+		return fmt.Errorf("not supported for containers")
+	}
 	m.Exec(name, []string{"/usr/bin/umount", guestPath})
 	tag := "ksvm-mount-" + strings.ReplaceAll(guestPath, "/", "-")
-	fs := libvirtxml.DomainFilesystem{ Target: &libvirtxml.DomainFilesystemTarget{ Dir: tag } }
+	fs := libvirtxml.DomainFilesystem{Target: &libvirtxml.DomainFilesystemTarget{Dir: tag}}
 	xml, _ := fs.Marshal()
 	return domain.DetachDeviceFlags(xml, 1)
 }
@@ -571,15 +631,19 @@ func (m *Manager) Umount(name, guestPath string) error {
 // Mount dynamically attaches a host directory.
 func (m *Manager) Mount(name, hostPath, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil { return fmt.Errorf("not supported for containers") }
+	if err != nil {
+		return fmt.Errorf("not supported for containers")
+	}
 	tag := "ksvm-mount-" + strings.ReplaceAll(guestPath, "/", "-")
 	fs := libvirtxml.DomainFilesystem{
 		AccessMode: "passthrough",
-		Source: &libvirtxml.DomainFilesystemSource{ Mount: &libvirtxml.DomainFilesystemSourceMount{ Dir: hostPath } },
-		Target: &libvirtxml.DomainFilesystemTarget{ Dir: tag },
+		Source:     &libvirtxml.DomainFilesystemSource{Mount: &libvirtxml.DomainFilesystemSourceMount{Dir: hostPath}},
+		Target:     &libvirtxml.DomainFilesystemTarget{Dir: tag},
 	}
 	xml, _ := fs.Marshal()
-	if err := domain.AttachDeviceFlags(xml, 1); err != nil { return err }
+	if err := domain.AttachDeviceFlags(xml, 1); err != nil {
+		return err
+	}
 	m.Exec(name, []string{"/usr/bin/mkdir", "-p", guestPath})
 	m.Exec(name, []string{"/usr/bin/mount", "-t", "9p", "-o", "trans=virtio,version=9p2000.L", tag, guestPath})
 	return nil
@@ -696,7 +760,9 @@ func (m *Manager) Purge() error {
 	if err == nil {
 		for _, domain := range domains {
 			isActive, _ := domain.IsActive()
-			if isActive { domain.Destroy() }
+			if isActive {
+				domain.Destroy()
+			}
 			domain.Undefine()
 		}
 	}
@@ -706,9 +772,13 @@ func (m *Manager) Purge() error {
 // Version returns the current versions.
 func (m *Manager) Version() (*VersionInfo, error) {
 	libVer, err := m.conn.GetLibVersion()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	qemuVer, err := m.conn.GetVersion()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return &VersionInfo{
 		KSVM:    "0.1.0-prototype",
 		Libvirt: fmt.Sprintf("%d.%d.%d", libVer/1000000, (libVer%1000000)/1000, libVer%1000),
@@ -721,23 +791,34 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		info, err := domain.GetInfo()
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		state, _, err := domain.GetState()
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		status := "Unknown"
 		switch state {
-		case libvirt.DOMAIN_RUNNING: status = "Running"
-		case libvirt.DOMAIN_PAUSED: status = "Paused"
-		case libvirt.DOMAIN_SHUTOFF: status = "Stopped"
+		case libvirt.DOMAIN_RUNNING:
+			status = "Running"
+		case libvirt.DOMAIN_PAUSED:
+			status = "Paused"
+		case libvirt.DOMAIN_SHUTOFF:
+			status = "Stopped"
 		}
 		var ips []string
 		ifaces, _ := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
 		for _, iface := range ifaces {
-			for _, addr := range iface.Addrs { ips = append(ips, addr.Addr) }
+			for _, addr := range iface.Addrs {
+				ips = append(ips, addr.Addr)
+			}
 		}
 		var diskUsage int64
 		fi, err := os.Stat(filepath.Join(BaseDir, "instances", name, "disk.qcow2"))
-		if err == nil { diskUsage = fi.Size() }
+		if err == nil {
+			diskUsage = fi.Size()
+		}
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
 			CPUs: uint(info.NrVirtCpu), MemoryMB: uint(info.MaxMem / 1024), DiskUsage: diskUsage,
@@ -747,12 +828,18 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if _, err := os.Stat(destDir); err == nil {
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		var meta map[string]string
-		if err := json.Unmarshal(metaData, &meta); err != nil { return nil, err }
+		if err := json.Unmarshal(metaData, &meta); err != nil {
+			return nil, err
+		}
 		var rootfsUsage int64
 		filepath.Walk(filepath.Join(destDir, "rootfs"), func(_ string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() { rootfsUsage += info.Size() }
+			if err == nil && !info.IsDir() {
+				rootfsUsage += info.Size()
+			}
 			return nil
 		})
 		return &VMInfo{

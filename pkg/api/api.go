@@ -65,6 +65,7 @@ func (a *API) Register(r *gin.Engine) {
 	{
 		v1.GET("/instances", a.listInstances)
 		v1.GET("/images", a.listImages)
+		v1.POST("/images", a.addImage)
 		v1.GET("/info/:name", a.getInstanceInfo)
 
 		// Lifecycle Actions
@@ -237,8 +238,8 @@ func (a *API) deleteInstance(c *gin.Context) {
 
 func (a *API) getMonitorData(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"cpu": 12.5,
-		"ram": 8.2,
+		"cpu":              12.5,
+		"ram":              8.2,
 		"active_instances": 3,
 	})
 }
@@ -246,7 +247,17 @@ func (a *API) getMonitorData(c *gin.Context) {
 func (a *API) listUsers(c *gin.Context) {
 	a.uMu.RLock()
 	defer a.uMu.RUnlock()
-	c.JSON(http.StatusOK, a.users)
+
+	// Filter out sensitive data
+	users := make([]User, len(a.users))
+	for i, u := range a.users {
+		users[i] = User{
+			Username:    u.Username,
+			Email:       u.Email,
+			Permissions: u.Permissions,
+		}
+	}
+	c.JSON(http.StatusOK, users)
 }
 
 func (a *API) createUser(c *gin.Context) {
@@ -292,4 +303,21 @@ func (a *API) undoAction(c *gin.Context) {
 		a.addLog(c, "undo", log.Action+" "+log.Target)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Action undone"})
+}
+
+func (a *API) addImage(c *gin.Context) {
+	var req struct {
+		Name string `json:"name" binding:"required"`
+		URL  string `json:"url" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := a.manager.AddImage(req.Name, req.URL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	a.addLog(c, "add_image", req.Name)
+	c.JSON(http.StatusCreated, gin.H{"message": "Image added"})
 }

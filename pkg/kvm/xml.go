@@ -52,7 +52,7 @@ func GenerateDomainXML(config VMConfig) (string, error) {
 		OnCrash:    "destroy",
 		Devices: &libvirtxml.DomainDeviceList{
 			Filesystems: generateFilesystems(config.SharedFilesystems),
-			Disks: generateDisks(config),
+			Disks:       generateDisks(config),
 			Interfaces: []libvirtxml.DomainInterface{
 				{
 					Source: &libvirtxml.DomainInterfaceSource{

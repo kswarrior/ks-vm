@@ -43,6 +43,9 @@ func init() {
 	deployCmd.Flags().UintVar(&deployRAM, "ram", 1024, "Memory in MiB")
 	deployCmd.Flags().UintVar(&deployDisk, "disk", 0, "Disk size in GB (0 to use base image size)")
 
+	daemonCmd.Flags().StringVar(&daemonUser, "user", "", "Master username for Web UI")
+	daemonCmd.Flags().StringVar(&daemonPass, "pass", "", "Master password for Web UI")
+
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(launchCmd)
 	rootCmd.AddCommand(stopCmd)
@@ -97,6 +100,9 @@ var deployCmd = &cobra.Command{
 			return
 		}
 		fmt.Printf("VM %s deployed successfully.\n", name)
+
+		// Hijack the terminal for the first shell session if it's a VM
+		manager.Shell(name)
 	},
 }
 
@@ -453,11 +459,16 @@ var versionCmd = &cobra.Command{
 
 var purgeForce bool
 
+var daemonUser string
+var daemonPass string
+
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
 	Short: "Run ksvm in daemon mode with Web UI and Gateway",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := parsePortMap(portMap)
+		cfg.MasterUser = daemonUser
+		cfg.MasterPass = daemonPass
 		if cfg.WebPort == "" {
 			cfg.WebPort = "8080"
 		}

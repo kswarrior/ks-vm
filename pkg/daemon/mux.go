@@ -3,15 +3,15 @@ package daemon
 import (
 	"fmt"
 	"io"
+	"ksvm/pkg/kvm"
 	"net"
 	"strings"
 	"time"
-	"ksvm/pkg/kvm"
 )
 
 // Mux handles routing internal VM streams.
 type Mux struct {
-	port string
+	port    string
 	manager *kvm.Manager
 }
 
@@ -41,7 +41,9 @@ func (m *Mux) handleConn(conn net.Conn) {
 
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	data := string(buf[:n])
 	targetVM := ""
@@ -51,8 +53,12 @@ func (m *Mux) handleConn(conn net.Conn) {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "X-KSVM-Target:") {
 			parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(line, "X-KSVM-Target:")), ":")
-			if len(parts) >= 1 { targetVM = parts[0] }
-			if len(parts) >= 2 { targetPort = parts[1] }
+			if len(parts) >= 1 {
+				targetVM = parts[0]
+			}
+			if len(parts) >= 2 {
+				targetPort = parts[1]
+			}
 		}
 	}
 
