@@ -218,29 +218,32 @@ func (a *API) resumeInstance(c *gin.Context) {
 }
 
 func (a *API) updateInstance(c *gin.Context) {
-	name := c.Param("name")
+	oldName := c.Param("name")
 	var req struct {
-		MemoryMB uint `json:"memory_mb"`
-		CPUs     uint `json:"cpus"`
+		Name     string `json:"name"`
+		MemoryMB uint   `json:"memory_mb"`
+		CPUs     uint   `json:"cpus"`
+		User     string `json:"user"`
+		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// For containers, we don't support dynamic update yet
-	info, err := a.manager.Info(name)
-	if err == nil && info.Type == "container" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Dynamic update not supported for containers"})
-		return
+	opts := kvm.DeployOptions{
+		User:     req.User,
+		Password: req.Password,
+		MemoryMB: req.MemoryMB,
+		CPUs:     req.CPUs,
 	}
 
-	if err := a.manager.Update(name, req.MemoryMB, req.CPUs); err != nil {
+	if err := a.manager.UpdateInstance(oldName, req.Name, opts); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	a.addLog(c, "update", name)
-	c.JSON(http.StatusOK, gin.H{"message": "Updated " + name})
+	a.addLog(c, "update", oldName)
+	c.JSON(http.StatusOK, gin.H{"message": "Updated " + oldName})
 }
 
 func (a *API) deleteInstance(c *gin.Context) {

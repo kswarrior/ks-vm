@@ -14,12 +14,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     setInterval(() => {
-        const activeTab = document.querySelector('.nav-item.active').dataset.tab;
-        if (activeTab === 'instances') fetchInstances();
+        const activeNavItem = document.querySelector('.nav-item.active');
+        if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
     }, 4000);
 
     fetchInstances();
     preloadImages();
+
+    setTimeout(() => {
+        const splash = document.getElementById('splash');
+        splash.style.opacity = '0';
+        setTimeout(() => splash.style.visibility = 'hidden', 500);
+    }, 1500);
 });
 
 function showTab(tabId) {
@@ -46,15 +52,19 @@ async function fetchInstances() {
     data.forEach(vm => {
         const card = document.createElement('div');
         card.className = 'card';
+        if (vm.Status === 'deploying') {
+            const overlay = document.createElement('div');
+            overlay.className = 'overlay';
+            overlay.innerText = 'DEPLOYING...';
+            card.appendChild(overlay);
+        }
         const statusClass = `status-${vm.Status}`;
 
         const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
         const memTotal = (vm.MemoryMB / 1024).toFixed(1);
-        const memPerc = vm.MemoryUsage && vm.MemoryMB ? (vm.MemoryUsage / vm.MemoryMB * 100).toFixed(0) : 0;
-
         const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
 
-        card.innerHTML = `
+        card.innerHTML += `
             <div class="instance-header">
                 <div class="instance-title">${vm.Name}</div>
                 <div class="instance-status ${statusClass}">${vm.Status}</div>
@@ -62,31 +72,22 @@ async function fetchInstances() {
 
             <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
                 <div style="font-size:0.75rem; font-weight:600; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">${vm.Type.toUpperCase()}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${vm.Type.toUpperCase()}</div>
                 <div style="font-size:0.75rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-box">
-                    <div class="stat-label">
-                        <svg style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M2 17h20v2H2zm1.15-4.05L4 14h16l.85-1.05-1.2-1.5L18.8 12H5.2l-.85-.55zm1.3-1.6L4.5 12h15l.05-.65-1.2-1.5L17.5 10H6.5l-.85-.15zM7 2h10v2H7zm0 13h10v2H7z"/></svg>
-                        RAM: ${memUsed} / ${memTotal} GB
-                    </div>
-                    <div class="progress-bar"><div class="progress-inner" style="width:${memPerc}%"></div></div>
+            <div class="stats-line">
+                <div class="stat-item">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
+                    ${vm.CPUs} vCPU
                 </div>
-                <div class="stat-box">
-                    <div class="stat-label">
-                        <svg style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
-                        CPU: ${vm.CPUUsage || 0}% / ${vm.CPUs} Core
-                    </div>
-                    <div class="progress-bar"><div class="progress-inner" style="width:${vm.CPUUsage || 0}%"></div></div>
+                <div class="stat-item">
+                    <svg viewBox="0 0 24 24"><path d="M2 17h20v2H2zm1.15-4.05L4 14h16l.85-1.05-1.2-1.5L18.8 12H5.2l-.85-.55zm1.3-1.6L4.5 12h15l.05-.65-1.2-1.5L17.5 10H6.5l-.85-.15zM7 2h10v2H7zm0 13h10v2H7z"/></svg>
+                    ${memTotal} GB RAM
                 </div>
-            </div>
-
-            <div class="stat-box" style="margin-top:16px;">
-                <div class="stat-label">
-                    <svg style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-                    Disk: ${diskUsed} GB / ${vm.DiskGB || '-'} GB
+                <div class="stat-item">
+                    <svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+                    ${diskUsed} GB Disk
                 </div>
             </div>
 
@@ -169,15 +170,28 @@ async function openEdit(name) {
     const res = await fetch(`/api/v1/info/${name}`);
     const info = await res.json();
     document.getElementById('edit-title').innerText = "Edit: " + name;
+    document.getElementById('edit-name').value = info.Name;
     document.getElementById('edit-cpu').value = info.CPUs;
     document.getElementById('edit-ram').value = info.MemoryMB;
+    document.getElementById('edit-user').value = info.User || 'ubuntu';
+    document.getElementById('edit-pass').value = '';
     showTab('edit');
 }
 
 async function updateInstance() {
-    const name = document.getElementById('edit-title').innerText.split(': ')[1];
-    const data = { cpus: parseInt(document.getElementById('edit-cpu').value), memory_mb: parseInt(document.getElementById('edit-ram').value) };
-    const res = await fetch(`/api/v1/update/${name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const oldName = document.getElementById('edit-title').innerText.split(': ')[1];
+    const data = {
+        name: document.getElementById('edit-name').value,
+        cpus: parseInt(document.getElementById('edit-cpu').value),
+        memory_mb: parseInt(document.getElementById('edit-ram').value),
+        user: document.getElementById('edit-user').value,
+        password: document.getElementById('edit-pass').value
+    };
+    const res = await fetch(`/api/v1/update/${oldName}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
     if (res.ok) showTab('instances');
     else alert("Error: " + (await res.json()).error);
 }
@@ -211,14 +225,23 @@ function showAddImageForm(show = true) {
 }
 
 async function addImage() {
+    const card = document.getElementById('add-image-form');
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerText = 'DOWNLOADING...';
+    card.appendChild(overlay);
+
     const data = {
         name: document.getElementById('img-name').value,
         url: document.getElementById('img-url').value,
         type: document.getElementById('img-type').value
     };
-    await fetch('/api/v1/images', { method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'} });
-    showAddImageForm(false);
-    fetchImages();
+    const res = await fetch('/api/v1/images', { method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'} });
+    card.removeChild(overlay);
+    if (res.ok) {
+        showAddImageForm(false);
+        fetchImages();
+    } else alert("Error adding image");
 }
 
 async function removeImage(name) {

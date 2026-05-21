@@ -376,16 +376,55 @@ func (m *Manager) Resume(name string) error {
 	return domain.Resume()
 }
 
-// Update modifies VM resources (CPU/Memory).
-func (m *Manager) Update(name string, memoryMB, cpus uint) error {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		return fmt.Errorf("update not supported for containers")
+// UpdateInstance modifies instance resources and metadata.
+func (m *Manager) UpdateInstance(oldName, newName string, opts DeployOptions) error {
+	domain, err := m.conn.LookupDomainByName(oldName)
+	if err == nil {
+		// VM Update
+		if opts.MemoryMB > 0 {
+			domain.SetMemoryFlags(uint64(opts.MemoryMB)*1024, libvirt.DOMAIN_MEM_CONFIG|libvirt.DOMAIN_MEM_LIVE)
+		}
+		if opts.CPUs > 0 {
+			domain.SetVcpusFlags(opts.CPUs, libvirt.DOMAIN_VCPU_CONFIG|libvirt.DOMAIN_VCPU_LIVE)
+		}
+
+		if newName != "" && newName != oldName {
+			isActive, _ := domain.IsActive()
+			if isActive {
+				return fmt.Errorf("cannot rename a running VM")
+			}
+			// Renaming in libvirt is tricky (undefine/define), for now we just change metadata if possible
+			// or return error if not implemented fully.
+			return fmt.Errorf("renaming VMs not yet fully supported in this prototype")
+		}
+		return nil
 	}
-	if err := domain.SetMemoryFlags(uint64(memoryMB)*1024, 0); err != nil {
-		return err
+
+	destDir := filepath.Join(BaseDir, "containers", oldName)
+	if _, err := os.Stat(destDir); err == nil {
+		// Container Update
+		if newName != "" && newName != oldName {
+			newDir := filepath.Join(BaseDir, "containers", newName)
+			if err := os.Rename(destDir, newDir); err != nil {
+				return err
+			}
+			destDir = newDir
+		}
+
+		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
+		if err == nil {
+			var meta map[string]string
+			json.Unmarshal(metaData, &meta)
+			if opts.User != "" {
+				meta["user"] = opts.User
+			}
+			newMeta, _ := json.Marshal(meta)
+			os.WriteFile(filepath.Join(destDir, "meta.json"), newMeta, 0644)
+		}
+		return nil
 	}
-	return domain.SetVcpusFlags(cpus, 0)
+
+	return fmt.Errorf("instance %s not found", oldName)
 }
 
 // VMInfo contains information about an instance.
