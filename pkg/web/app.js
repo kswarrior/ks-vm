@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
     }, 4000);
 
-    // Load initial data and hide splash screen
+    // Initial load with splash screen
     await Promise.all([fetchInstances(), preloadImages()]);
     hideSplash();
 });
@@ -69,30 +69,43 @@ async function fetchInstances() {
         const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
         const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
-        card.innerHTML += `
+        const cpuPerc = vm.CPUUsage.toFixed(1);
+        const memPerc = Math.min(100, (vm.MemoryUsage / vm.MemoryMB * 100)).toFixed(1);
+        const diskPerc = vm.DiskGB > 0 ? Math.min(100, (vm.DiskUsage / (vm.DiskGB * 1024 * 1024 * 1024) * 100)).toFixed(1) : 0;
+
+        card.innerHTML = `
             <div class="instance-header">
                 <div class="instance-title">${vm.Name}</div>
                 <div class="instance-status ${statusClass}">${vm.Status}</div>
             </div>
 
             <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
-                <div style="font-size:0.75rem; font-weight:600; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${vm.Type.toUpperCase()}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
+                <div style="font-size:0.7rem; font-weight:800; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px; border: 1px solid rgba(59, 130, 246, 0.2);">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
+                <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700;">${vm.Type.toUpperCase()}</div>
+                <div style="font-size:0.7rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
             </div>
 
-            <div class="stats-line">
+            <div class="metrics-grid">
                 <div class="stat-item">
-                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
-                    ${vm.CPUs} vCPU
+                    <div class="stat-header">
+                        <span><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> CPU</span>
+                        <span>${cpuPerc}%</span>
+                    </div>
+                    <div class="stat-progress"><div class="progress-fill" style="width: ${cpuPerc}%"></div></div>
                 </div>
                 <div class="stat-item">
-                    <svg viewBox="0 0 24 24"><path d="M2 17h20v2H2zm1.15-4.05L4 14h16l.85-1.05-1.2-1.5L18.8 12H5.2l-.85-.55zm1.3-1.6L4.5 12h15l.05-.65-1.2-1.5L17.5 10H6.5l-.85-.15zM7 2h10v2H7zm0 13h10v2H7z"/></svg>
-                    ${memTotal} GB RAM
+                    <div class="stat-header">
+                        <span><svg viewBox="0 0 24 24"><path d="M6 2c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2H6zm0 2h5v3H6V4zm7 0h5v3h-5V4zM6 9h5v3H6V9zm7 0h5v3h-5V9zm-7 5h5v3H6v-3zm7 0h5v3h-5v-3zm-7 5h5v1H6v-1zm7 0h5v1h-5v-1z"/></svg> RAM</span>
+                        <span>${memUsed} / ${memTotal} GB</span>
+                    </div>
+                    <div class="stat-progress"><div class="progress-fill" style="width: ${memPerc}%"></div></div>
                 </div>
                 <div class="stat-item">
-                    <svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-                    ${diskTotal} GB Disk
+                    <div class="stat-header">
+                        <span><svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg> DISK</span>
+                        <span>${diskUsed} / ${diskTotal} GB</span>
+                    </div>
+                    <div class="stat-progress"><div class="progress-fill" style="width: ${diskPerc}%"></div></div>
                 </div>
             </div>
 
@@ -123,7 +136,6 @@ function toggleDropdown(e, name) {
 
 window.onclick = () => {
     document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('show'));
-    document.getElementById('image-dropdown').style.display = 'none';
 };
 
 async function preloadImages() {
@@ -216,7 +228,7 @@ async function fetchImages() {
                 <h3 style="margin:0;">${img.Name}</h3>
                 <span class="badge" style="color:var(--primary);">${img.Type || 'VM'}</span>
             </div>
-            <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(2)} MB</p>
+            <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
             <div style="display:flex; gap:8px;">
                 <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
                 <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
@@ -269,10 +281,10 @@ async function fetchUsers() {
     list.innerHTML = data.map(u => `
         <div class="card">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:700;">${u.username[0].toUpperCase()}</div>
+                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid var(--primary-light);">${u.username[0].toUpperCase()}</div>
                 <div>
                     <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
-                    <div style="font-size:0.8rem; color:var(--text-muted);">${u.email}</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>
                 </div>
             </div>
             <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem;">Delete User</button>
@@ -303,12 +315,12 @@ async function fetchLogs() {
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => `
-        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center;">
+        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
             <div>
                 <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
-                <div style="font-weight:600;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
+                <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
             </div>
-            <div style="font-size:0.8rem; font-weight:700;">${l.user.toUpperCase()}</div>
+            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
         </div>
     `).join('');
 }

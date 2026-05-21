@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,9 +24,16 @@ const (
 	BaseDir = "/var/lib/ksvm"
 )
 
+type cpuStat struct {
+	Usage uint64
+	Time  time.Time
+}
+
 // Manager handles interaction with libvirt.
 type Manager struct {
-	conn *libvirt.Connect
+	conn     *libvirt.Connect
+	cpuCache map[string]cpuStat
+	statsMu  sync.RWMutex
 }
 
 // NewManager creates a new Manager and connects to the local libvirt daemon.
@@ -38,7 +46,10 @@ func NewManager() (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to libvirt: %v", err)
 	}
-	return &Manager{conn: conn}, nil
+	return &Manager{
+		conn:     conn,
+		cpuCache: make(map[string]cpuStat),
+	}, nil
 }
 
 // Close closes the libvirt connection.
@@ -888,6 +899,9 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 					memUsage = uint(s.Val / 1024)
 				}
 			}
+			if memUsage == 0 {
+				memUsage = uint(info.Memory / 1024)
+			}
 		}
 
 		diskGB := uint(0)
@@ -895,9 +909,24 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			diskGB = uint(blockInfo.Capacity / 1024 / 1024 / 1024)
 		}
 
+		// CPU Calculation
+		cpuUsage := 0.0
+		if state == libvirt.DOMAIN_RUNNING {
+			m.statsMu.Lock()
+			now := time.Now()
+			if prev, ok := m.cpuCache[name]; ok {
+				duration := now.Sub(prev.Time).Seconds()
+				if duration > 0 {
+					cpuUsage = (float64(info.CpuTime-prev.Usage) / (duration * 1e9)) * 100.0 / float64(info.NrVirtCpu)
+				}
+			}
+			m.cpuCache[name] = cpuStat{Usage: info.CpuTime, Time: now}
+			m.statsMu.Unlock()
+		}
+
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
-			CPUs: uint(info.NrVirtCpu), CPUUsage: 0.0, // Hard to calculate live CPU without interval
+			CPUs: uint(info.NrVirtCpu), CPUUsage: cpuUsage,
 			MemoryMB:    uint(info.MaxMem / 1024),
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
