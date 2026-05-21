@@ -96,11 +96,16 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		}
 	}
 
-	if !isVM && (strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/")) {
-		return m.DeployContainer(name, baseImage, opts)
-	}
-
 	if !isVM {
+		// Check for .docker marker
+		markerPath := filepath.Join(ImagesDir, baseImage+".docker")
+		if data, err := os.ReadFile(markerPath); err == nil {
+			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
+		}
+
+		if strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/") {
+			return m.DeployContainer(name, baseImage, opts)
+		}
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
 	}
 
@@ -480,6 +485,10 @@ func (m *Manager) Delete(name string) error {
 
 // AddImage registers a base cloud image.
 func (m *Manager) AddImage(name, source string) error {
+	if strings.HasPrefix(source, "docker://") {
+		os.MkdirAll(ImagesDir, 0755)
+		return os.WriteFile(filepath.Join(ImagesDir, name+".docker"), []byte(source), 0644)
+	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		_, err := DownloadImage(name, source)
 		return err
@@ -499,6 +508,15 @@ func (m *Manager) RemoveImage(name string) error {
 }
 
 // Restart reboots a VM/Container gracefully.
+func (m *Manager) SetupSSH(name string) (string, error) {
+	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)}
+	_, err := m.Exec(name, cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to run SSH setup inside instance: %v", err)
+	}
+	return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
+}
+
 func (m *Manager) Restart(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
