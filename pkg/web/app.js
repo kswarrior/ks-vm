@@ -1,6 +1,6 @@
 let allImages = [];
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     const tabs = document.querySelectorAll('.nav-item');
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
@@ -18,15 +18,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
     }, 4000);
 
-    fetchInstances();
-    preloadImages();
-
-    setTimeout(() => {
-        const splash = document.getElementById('splash');
-        splash.style.opacity = '0';
-        setTimeout(() => splash.style.visibility = 'hidden', 500);
-    }, 1500);
+    // Load initial data and hide splash screen
+    await Promise.all([fetchInstances(), preloadImages()]);
+    hideSplash();
 });
+
+function hideSplash() {
+    const splash = document.getElementById('splash');
+    if (!splash) return;
+    splash.style.opacity = '0';
+    setTimeout(() => {
+        splash.style.visibility = 'hidden';
+    }, 500);
+}
 
 function showTab(tabId) {
     document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
@@ -63,6 +67,7 @@ async function fetchInstances() {
         const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
         const memTotal = (vm.MemoryMB / 1024).toFixed(1);
         const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
+        const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
         card.innerHTML += `
             <div class="instance-header">
@@ -87,7 +92,7 @@ async function fetchInstances() {
                 </div>
                 <div class="stat-item">
                     <svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-                    ${diskUsed} GB Disk
+                    ${diskTotal} GB Disk
                 </div>
             </div>
 

@@ -86,7 +86,7 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	if !isVM && (strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/")) {
-		return m.DeployContainer(name, baseImage)
+		return m.DeployContainer(name, baseImage, opts)
 	}
 
 	if !isVM {
@@ -168,7 +168,7 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 }
 
 // DeployContainer provisions a container instance.
-func (m *Manager) DeployContainer(name, image string) error {
+func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error {
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -185,10 +185,13 @@ func (m *Manager) DeployContainer(name, image string) error {
 		return err
 	}
 
-	meta := map[string]string{
-		"type":   "container",
-		"image":  image,
-		"status": "stopped",
+	meta := map[string]interface{}{
+		"type":      "container",
+		"image":     image,
+		"status":    "stopped",
+		"cpus":      opts.CPUs,
+		"memory_mb": opts.MemoryMB,
+		"disk_gb":   opts.DiskGB,
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
@@ -249,7 +252,7 @@ func (m *Manager) updateContainerStatus(name, status string) {
 	metaPath := filepath.Join(destDir, "meta.json")
 	metaData, err := os.ReadFile(metaPath)
 	if err == nil {
-		var meta map[string]string
+		var meta map[string]interface{}
 		if err := json.Unmarshal(metaData, &meta); err == nil {
 			meta["status"] = status
 			newMeta, _ := json.Marshal(meta)
@@ -307,7 +310,7 @@ func (m *Manager) Launch(name string) error {
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
-			var meta map[string]string
+			var meta map[string]interface{}
 			if err := json.Unmarshal(metaData, &meta); err == nil {
 				meta["status"] = "running"
 				metaJSON, _ := json.Marshal(meta)
@@ -346,7 +349,7 @@ func (m *Manager) Stop(name string) error {
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
-			var meta map[string]string
+			var meta map[string]interface{}
 			if err := json.Unmarshal(metaData, &meta); err == nil {
 				meta["status"] = "stopped"
 				metaJSON, _ := json.Marshal(meta)
@@ -413,7 +416,7 @@ func (m *Manager) UpdateInstance(oldName, newName string, opts DeployOptions) er
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
-			var meta map[string]string
+			var meta map[string]interface{}
 			json.Unmarshal(metaData, &meta)
 			if opts.User != "" {
 				meta["user"] = opts.User
@@ -887,11 +890,16 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			}
 		}
 
+		diskGB := uint(0)
+		if blockInfo, err := domain.GetBlockInfo("vda", 0); err == nil {
+			diskGB = uint(blockInfo.Capacity / 1024 / 1024 / 1024)
+		}
+
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
 			CPUs: uint(info.NrVirtCpu), CPUUsage: 0.0, // Hard to calculate live CPU without interval
 			MemoryMB:    uint(info.MaxMem / 1024),
-			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: 0,
+			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
 		}, nil
 	}
@@ -902,7 +910,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		var meta map[string]string
+		var meta map[string]interface{}
 		if err := json.Unmarshal(metaData, &meta); err != nil {
 			return nil, err
 		}
@@ -913,11 +921,28 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			}
 			return nil
 		})
+
+		cpus := uint(1)
+		if c, ok := meta["cpus"].(float64); ok {
+			cpus = uint(c)
+		}
+		memMB := uint(512)
+		if m, ok := meta["memory_mb"].(float64); ok {
+			memMB = uint(m)
+		}
+		diskGB := uint(0)
+		if d, ok := meta["disk_gb"].(float64); ok {
+			diskGB = uint(d)
+		}
+
+		status, _ := meta["status"].(string)
+		image, _ := meta["image"].(string)
+
 		return &VMInfo{
-			Name: name, Status: meta["status"], Type: "container", IPs: []string{"internal"},
-			CPUs: 1, CPUUsage: 0.0, MemoryMB: 512, MemoryUsage: 0,
-			DiskUsage: rootfsUsage, DiskGB: 1,
-			Image: meta["image"],
+			Name: name, Status: status, Type: "container", IPs: []string{"internal"},
+			CPUs: cpus, CPUUsage: 0.0, MemoryMB: memMB, MemoryUsage: 0,
+			DiskUsage: rootfsUsage, DiskGB: diskGB,
+			Image: image,
 		}, nil
 	}
 	return nil, fmt.Errorf("instance %s not found", name)
@@ -930,46 +955,18 @@ func (m *Manager) List() ([]VMInfo, error) {
 	if err == nil {
 		for _, domain := range domains {
 			name, _ := domain.GetName()
-			state, _, _ := domain.GetState()
-			status := "Unknown"
-			if m.isDeploying(name) {
-				status = "deploying"
-			} else {
-				switch state {
-				case libvirt.DOMAIN_RUNNING:
-					status = "running"
-				case libvirt.DOMAIN_PAUSED:
-					status = "paused"
-				case libvirt.DOMAIN_SHUTOFF:
-					status = "stopped"
-				}
+			if info, err := m.Info(name); err == nil {
+				infos = append(infos, *info)
 			}
-			var ips []string
-			if status == "running" {
-				ifaces, _ := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
-				for _, iface := range ifaces {
-					for _, addr := range iface.Addrs {
-						ips = append(ips, addr.Addr)
-					}
-				}
-			}
-			infos = append(infos, VMInfo{Name: name, Status: status, Type: "vm", IPs: ips})
 		}
 	}
 	entries, _ := os.ReadDir(filepath.Join(BaseDir, "containers"))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			name := entry.Name()
-			status := "stopped"
-			if m.isDeploying(name) {
-				status = "deploying"
-			} else {
-				running, _ := m.isContainerRunning(name)
-				if running {
-					status = "running"
-				}
+			if info, err := m.Info(name); err == nil {
+				infos = append(infos, *info)
 			}
-			infos = append(infos, VMInfo{Name: name, Status: status, Type: "container"})
 		}
 	}
 	return infos, nil
