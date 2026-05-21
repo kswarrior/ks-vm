@@ -1,4 +1,4 @@
-name: KS Panel tasting
+name: KS VM testing
 
 on:
   workflow_dispatch:
