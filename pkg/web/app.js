@@ -88,9 +88,9 @@ async function fetchInstances() {
                 </div>
 
                 <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
-                    <div style="font-size:0.7rem; font-weight:800; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px; border: 1px solid rgba(59, 130, 246, 0.2);">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
-                    <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700;">${vm.Type.toUpperCase()}</div>
-                    <div style="font-size:0.7rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
+                    <div style="font-size:0.7rem; font-weight:800; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:2px; border: 1px solid rgba(0, 255, 65, 0.2); text-transform:uppercase;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">${vm.Type.toUpperCase()}</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">${vm.Image || 'DEFAULT'}</div>
                 </div>
 
                 <div class="metrics-grid">
@@ -248,13 +248,13 @@ async function fetchImages() {
     list.innerHTML = allImages.map(img => `
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <h3 style="margin:0;">${img.Name}</h3>
-                <span class="badge" style="color:var(--primary);">${img.Type || 'VM'}</span>
+                <h3 style="margin:0; text-transform:uppercase; letter-spacing:1px;">${img.Name}</h3>
+                <span class="badge" style="color:var(--primary); font-weight:800; font-size:0.7rem; text-transform:uppercase;">${img.Type || 'VM'}</span>
             </div>
-            <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
+            <p style="color:var(--text-muted); font-size:0.75rem; margin-bottom:20px; text-transform:uppercase;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
             <div style="display:flex; gap:8px;">
-                <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
-                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
+                <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.65rem;">Rename</button>
+                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.65rem;">Delete</button>
             </div>
         </div>
     `).join('');
@@ -304,13 +304,13 @@ async function fetchUsers() {
     list.innerHTML = data.map(u => `
         <div class="card">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid var(--primary-light);">${u.username[0].toUpperCase()}</div>
+                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:2px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid var(--primary-light);">${u.username[0].toUpperCase()}</div>
                 <div>
-                    <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
-                    <div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>
+                    <h3 style="margin:0; font-size:1rem; text-transform:uppercase;">${u.username}</h3>
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">${u.email}</div>
                 </div>
             </div>
-            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem;">Delete User</button>
+            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.65rem;">Delete User</button>
         </div>
     `).join('');
 }
@@ -338,12 +338,12 @@ async function fetchLogs() {
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => `
-        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; clip-path:none;">
             <div>
-                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
-                <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
+                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase;">${l.timestamp} • IP: ${l.ip}</div>
+                <div style="font-weight:700; font-size:0.9rem; text-transform:uppercase;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
             </div>
-            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
+            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:2px; text-transform:uppercase;">${l.user.toUpperCase()}</div>
         </div>
     `).join('');
 }

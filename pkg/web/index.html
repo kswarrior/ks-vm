@@ -50,14 +50,14 @@
         <main class="main-view">
             <div id="instances" class="view">
                 <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h1 style="font-size: 1.5rem; font-weight: 800;">Instances</h1>
+                    <h1>Instances</h1>
                     <button class="btn btn-primary" onclick="showTab('deploy')">+ Deploy Instance</button>
                 </div>
                 <div class="grid" id="instance-grid"></div>
             </div>
 
             <div id="deploy" class="view" style="display:none;">
-                <h1 style="margin-bottom:24px;">Deploy New Instance</h1>
+                <h1>Deploy New Instance</h1>
                 <div class="card" style="max-width: 800px;">
                     <div class="form-group">
                         <label>Instance Name</label>
@@ -88,13 +88,13 @@
 
                     <div style="display:flex; gap:12px; margin-top:24px;">
                         <button class="btn btn-primary" onclick="deployInstance()" style="flex:1;">Provision Now</button>
-                        <button class="btn" onclick="showTab('instances')" style="border-color:#ccc; color:#666;">Cancel</button>
+                        <button class="btn" onclick="showTab('instances')" style="flex:1;">Cancel</button>
                     </div>
                 </div>
             </div>
 
             <div id="edit" class="view" style="display:none;">
-                <h1 id="edit-title" style="margin-bottom:24px;">Edit Instance</h1>
+                <h1 id="edit-title">Edit Instance</h1>
                 <div class="card" style="max-width: 600px;">
                     <div class="form-group">
                         <label>Instance Name</label>
@@ -110,21 +110,21 @@
                     </div>
                     <div style="display:flex; gap:12px; margin-top:24px;">
                         <button class="btn btn-primary" onclick="updateInstance()" style="flex:1;">Save Changes</button>
-                        <button class="btn" onclick="showTab('instances')" style="flex:1; border-color:#ccc; color:#666;">Cancel</button>
+                        <button class="btn" onclick="showTab('instances')" style="flex:1;">Cancel</button>
                     </div>
                 </div>
             </div>
 
             <div id="images" class="view" style="display:none;">
                 <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h1 style="font-size: 1.5rem; font-weight: 800;">Base Images</h1>
+                    <h1>Base Images</h1>
                     <button class="btn btn-primary" onclick="showAddImageForm()">+ Add Image</button>
                 </div>
                 <div id="add-image-form" class="card" style="display:none; max-width: 600px; margin-bottom:32px;">
                     <label>Name</label><input type="text" id="img-name">
                     <label>URL/Path</label><input type="text" id="img-url">
                     <label>Type</label>
-                    <select id="img-type" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:16px;">
+                    <select id="img-type" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:16px; background:#000; color:#fff;">
                         <option value="vm">Virtual Machine</option>
                         <option value="container">Container</option>
                     </select>
@@ -136,7 +136,7 @@
 
             <div id="users" class="view" style="display:none;">
                 <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h1 style="font-size: 1.5rem; font-weight: 800;">Users</h1>
+                    <h1>Users</h1>
                     <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
                 </div>
                 <div id="add-user-form" class="card" style="display:none; max-width: 600px; margin-bottom:32px;">
@@ -150,7 +150,7 @@
             </div>
 
             <div id="log" class="view" style="display:none;">
-                <h1 style="margin-bottom:32px;">Audit Log</h1>
+                <h1>Audit Log</h1>
                 <div id="log-list" style="display:flex; flex-direction:column; gap:16px;"></div>
             </div>
         </main>
