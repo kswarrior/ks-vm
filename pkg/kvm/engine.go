@@ -509,10 +509,38 @@ func (m *Manager) RemoveImage(name string) error {
 
 // Restart reboots a VM/Container gracefully.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)}
-	_, err := m.Exec(name, cmd)
+	cmdStr := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
+
+	domain, err := m.conn.LookupDomainByName(name)
+	if err == nil {
+		// Try Exec first (Guest Agent)
+		_, err := m.Exec(name, []string{"/bin/sh", "-c", cmdStr})
+		if err == nil {
+			return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
+		}
+
+		// Fallback to Serial Console Injection
+		stream, err := m.conn.NewStream(0)
+		if err != nil {
+			return "", err
+		}
+		defer stream.Free()
+		if err := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); err != nil {
+			return "", err
+		}
+		// Inject the command
+		stream.Send([]byte("\n"))
+		time.Sleep(500 * time.Millisecond)
+		stream.Send([]byte(cmdStr + "\n"))
+		time.Sleep(1 * time.Second)
+
+		return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
+	}
+
+	// For containers, m.Exec is native (nsenter)
+	_, err = m.Exec(name, []string{"/bin/sh", "-c", cmdStr})
 	if err != nil {
-		return "", fmt.Errorf("failed to run SSH setup inside instance: %v", err)
+		return "", fmt.Errorf("failed to run SSH setup inside container: %v", err)
 	}
 	return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
 }
@@ -912,11 +940,27 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		memUsage := uint(0)
 		if state == libvirt.DOMAIN_RUNNING {
 			stats, _ := domain.MemoryStats(10, 0)
+			var available, unused uint64
+			foundAvailable, foundUnused := false, false
+
 			for _, s := range stats {
-				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_RSS) {
+				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_AVAILABLE) {
+					available = s.Val
+					foundAvailable = true
+				}
+				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_UNUSED) {
+					unused = s.Val
+					foundUnused = true
+				}
+				if memUsage == 0 && int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_RSS) {
 					memUsage = uint(s.Val / 1024)
 				}
 			}
+
+			if foundAvailable && foundUnused {
+				memUsage = uint((available - unused) / 1024)
+			}
+
 			if memUsage == 0 {
 				memUsage = uint(info.Memory / 1024)
 			}
