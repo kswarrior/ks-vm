@@ -313,11 +313,11 @@ async function fetchImages() {
 }
 
 function showAddImageForm(show = true) {
-    document.getElementById('add-image-form').style.display = show ? 'block' : 'none';
+    showTab('add-image');
 }
 
 async function addImage() {
-    const card = document.getElementById('add-image-form');
+    const card = document.querySelector('#add-image .card');
     const overlay = document.createElement('div');
     overlay.className = 'overlay';
     overlay.innerText = 'DOWNLOADING...';
@@ -335,7 +335,7 @@ async function addImage() {
     });
     card.removeChild(overlay);
     if (res.ok) {
-        showAddImageForm(false);
+        showTab('images');
         fetchImages();
     } else alert("Error adding image");
 }

@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KSVM | Cloud VPS Management</title>
+    <title>KS VM | Cloud Panel</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div id="splash">
         <div class="splash-content">
             <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.8l8 4v8.4l-8 4-8-4V8.8l8-4z"/></svg>
-            <h2 style="font-weight:800; color:#111; letter-spacing: -0.02em;">KSVM</h2>
+            <h2 style="font-weight:800; color:#111; letter-spacing: -0.02em;">KS VM</h2>
             <div class="loader-line"></div>
         </div>
     </div>
@@ -18,13 +18,13 @@
     <header class="header">
         <div class="brand">
             <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.8l8 4v8.4l-8 4-8-4V8.8l8-4z"/></svg>
-            HOSTING
+            KS VM
         </div>
 
         <div class="top-nav">
             <div class="search-bar">
                 <svg style="width:18px;height:18px;" viewBox="0 0 24 24"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,18.8L19,20.2L14.2,15.5V14.7L13.93,14.43C12.79,15.41 11.3,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C5.91,5 3,7.91 3,9.5C3,13.09 5.91,16 9.5,16C13.09,16 16,13.09 16,9.5C16,7.91 13.09,5 9.5,5Z"/></svg>
-                Search for VPS, images, or logs...
+                Search for VPS, images...
             </div>
         </div>
 
@@ -52,15 +52,15 @@
         </aside>
 
         <aside id="sidebar" class="sidebar">
-            <div style="padding:0 24px; margin-bottom:24px; font-weight:800; color:#000; font-size:0.75rem; letter-spacing:0.08em; opacity:0.5;">VPS MANAGEMENT</div>
+            <div style="padding:0 24px; margin-bottom:24px; font-weight:800; color:#000; font-size:0.75rem; letter-spacing:0.08em; opacity:0.5;">MANAGEMENT</div>
             <nav>
                 <div class="nav-item active" data-tab="instances">
                     <svg viewBox="0 0 24 24"><path d="M13,3H6C4.89,3 4,3.89 4,5V21C4,22.11 4.89,23 6,23H18C19.11,23 20,22.11 20,21V9L14,3M13,4.5L18.5,10H13V4.5M6,21V5H12V11H18V21H6Z"/></svg>
-                    Overview
+                    Instances
                 </div>
                 <div class="nav-item" data-tab="images">
                     <svg viewBox="0 0 24 24"><path d="M19,5V19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M14,17V15H10V17H14M12,9L10,13H14L12,9Z"/></svg>
-                    OS & Panel
+                    OS Images
                 </div>
                 <div class="nav-item" data-tab="users">
                     <svg viewBox="0 0 24 24"><path d="M12,12C14.21,12 16,10.21 16,8C16,5.79 14.21,4 12,4C9.79,4 8,5.79 8,8C8,10.21 9.79,12 12,12M12,14C9.33,14 4,15.34 4,18V20H20V18C20,15.34 14.67,14 12,14Z"/></svg>
@@ -68,35 +68,31 @@
                 </div>
                 <div class="nav-item" data-tab="log">
                     <svg viewBox="0 0 24 24"><path d="M13,3H6C4.89,3 4,3.89 4,5V21C4,22.11 4.89,23 6,23H18C19.11,23 20,22.11 20,21V9L14,3M13,4.5L18.5,10H13V4.5M6,21V5H12V11H18V21H6Z"/></svg>
-                    Activity Log
+                    Logs
                 </div>
             </nav>
         </aside>
 
         <main class="main-view">
-            <!-- Instances View -->
             <div id="instances" class="view">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / VPS / <span>Overview</span></div>
                     <div style="display:flex; justify-content: space-between; align-items: center;">
-                        <h1 style="font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em;">Overview</h1>
+                        <h1 style="font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em;">Instances</h1>
                         <button class="btn btn-primary" onclick="showTab('deploy')">+ Deploy VPS</button>
                     </div>
                 </div>
                 <div id="instance-list"></div>
             </div>
 
-            <!-- Deploy View -->
             <div id="deploy" class="view" style="display:none;">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / VPS / <span>Deploy</span></div>
                     <h1 style="font-size: 1.75rem; font-weight: 800;">Deploy New VPS</h1>
                 </div>
                 <div class="card" style="max-width: 800px;">
                     <div class="form-group"><label>Instance Name</label><input type="text" id="deploy-name" placeholder="e.g. web-server-01"></div>
                     <div class="form-group" style="position:relative;">
                         <label>Select Operating System</label>
-                        <input type="text" id="image-search" placeholder="Search OS images (Ubuntu, Debian...)" onkeyup="filterImages()">
+                        <input type="text" id="image-search" placeholder="Search OS images..." onkeyup="filterImages()">
                         <div id="image-dropdown" class="dropdown" style="width:100%; top:100%; left:0;"></div>
                         <input type="hidden" id="deploy-image">
                     </div>
@@ -107,7 +103,7 @@
                     <div class="form-group"><label>Disk Size (GB)</label><input type="number" id="deploy-disk" value="20"></div>
                     <div class="form-row">
                         <div class="form-group"><label>Admin Username</label><input type="text" id="deploy-user" value="root"></div>
-                        <div class="form-group"><label>Admin Password</label><input type="password" id="deploy-pass" placeholder="Leave empty for random"></div>
+                        <div class="form-group"><label>Admin Password</label><input type="password" id="deploy-pass"></div>
                     </div>
                     <div style="display:flex; gap:12px; margin-top:12px;">
                         <button class="btn btn-primary" onclick="deployInstance()">Deploy Now</button>
@@ -116,10 +112,8 @@
                 </div>
             </div>
 
-            <!-- Exec Terminal View -->
             <div id="exec" class="view" style="display:none;">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / VPS / <span>Terminal</span></div>
                     <h1 id="exec-title" style="font-size: 1.75rem; font-weight: 800;">Terminal</h1>
                 </div>
                 <div class="card">
@@ -134,10 +128,8 @@
                 </div>
             </div>
 
-            <!-- Edit View -->
             <div id="edit" class="view" style="display:none;">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / VPS / <span>Settings</span></div>
                     <h1 id="edit-title" style="font-size: 1.75rem; font-weight: 800;">Settings</h1>
                 </div>
                 <div class="card" style="max-width: 600px;">
@@ -157,45 +149,44 @@
                 </div>
             </div>
 
-            <!-- Images View -->
             <div id="images" class="view" style="display:none;">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / <span>OS Images</span></div>
                     <div style="display:flex; justify-content: space-between; align-items: center;">
-                        <h1 style="font-size: 1.75rem; font-weight: 800;">OS & Panel</h1>
-                        <button class="btn btn-primary" onclick="showAddImageForm()">+ Add Image</button>
+                        <h1 style="font-size: 1.75rem; font-weight: 800;">OS Images</h1>
+                        <button class="btn btn-primary" onclick="showTab('add-image')">+ Add Image</button>
                     </div>
                 </div>
+                <div class="grid-classic" id="image-list"></div>
+            </div>
 
-                <div id="add-image-form" class="card" style="display:none; max-width: 600px;">
+            <div id="add-image" class="view" style="display:none;">
+                <div class="page-header">
+                    <h1 style="font-size: 1.75rem; font-weight: 800;">Add OS Image</h1>
+                </div>
+                <div class="card" style="max-width: 600px;">
                     <div class="form-group"><label>Image Name</label><input type="text" id="img-name" placeholder="e.g. Ubuntu 22.04"></div>
                     <div class="form-group"><label>Source URL (QCOW2 or Docker)</label><input type="text" id="img-url" placeholder="https://... or docker://..."></div>
                     <div class="form-group">
                         <label>Type</label>
                         <select id="img-type">
                             <option value="vm">Virtual Machine (KVM)</option>
-                            <option value="container">Container (Linux Namespaces)</option>
+                            <option value="container">Container (Namespaces)</option>
                         </select>
                     </div>
                     <div style="display:flex; gap:12px;">
-                        <button class="btn btn-primary" onclick="addImage()">Start Download</button>
-                        <button class="btn btn-outline" onclick="showAddImageForm(false)">Cancel</button>
+                        <button class="btn btn-primary" onclick="addImage()">Add Image Now</button>
+                        <button class="btn btn-outline" onclick="showTab('images')">Cancel</button>
                     </div>
                 </div>
-
-                <div class="grid-classic" id="image-list"></div>
             </div>
 
-            <!-- Users View -->
             <div id="users" class="view" style="display:none;">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / <span>Settings</span></div>
                     <div style="display:flex; justify-content: space-between; align-items: center;">
                         <h1 style="font-size: 1.75rem; font-weight: 800;">Users</h1>
                         <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
                     </div>
                 </div>
-
                 <div id="add-user-form" class="card" style="display:none; max-width: 500px;">
                     <div class="form-group"><label>Username</label><input type="text" id="user-name"></div>
                     <div class="form-group"><label>Email Address</label><input type="email" id="user-email"></div>
@@ -205,15 +196,12 @@
                         <button class="btn btn-outline" onclick="showAddUserForm(false)">Cancel</button>
                     </div>
                 </div>
-
                 <div class="grid-classic" id="user-list"></div>
             </div>
 
-            <!-- Log View -->
             <div id="log" class="view" style="display:none;">
                 <div class="page-header">
-                    <div class="breadcrumbs">Home / <span>Audit Logs</span></div>
-                    <h1 style="font-size: 1.75rem; font-weight: 800;">Activity Log</h1>
+                    <h1 style="font-size: 1.75rem; font-weight: 800;">Logs</h1>
                 </div>
                 <div id="log-list"></div>
             </div>
