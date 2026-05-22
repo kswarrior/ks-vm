@@ -126,7 +126,10 @@ async function fetchInstances() {
                         <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
                         <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
                         <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
-                        ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH</div>` : ''}
+                        ${vm.Status === 'running' ? `
+                            <div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH</div>
+                            <div class="dropdown-item" style="color:var(--primary);" onclick="openExec('${vm.Name}')">RUN CODE</div>
+                        ` : ''}
                         <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
                     </div>
                 </div>
@@ -346,4 +349,35 @@ async function fetchLogs() {
             <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:2px; text-transform:uppercase;">${l.user.toUpperCase()}</div>
         </div>
     `).join('');
+}
+
+async function openExec(name) {
+    document.getElementById('exec-title').innerText = "Run Code: " + name;
+    document.getElementById('exec-command').value = '';
+    document.getElementById('exec-output').innerText = 'Ready.';
+    showTab('exec');
+}
+
+async function runExec() {
+    const name = document.getElementById('exec-title').innerText.split(': ')[1];
+    const command = document.getElementById('exec-command').value;
+    const outputArea = document.getElementById('exec-output');
+
+    outputArea.innerText = "Executing...";
+
+    try {
+        const res = await fetch(`/api/v1/exec/${name}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            outputArea.innerText = data.output + (data.error ? "\n[ERROR]: " + data.error : "");
+        } else {
+            outputArea.innerText = "Error: " + data.error;
+        }
+    } catch (e) {
+        outputArea.innerText = "Connection Error: " + e.message;
+    }
 }

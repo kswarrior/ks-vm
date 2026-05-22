@@ -80,6 +80,7 @@ func (a *API) Register(r *gin.Engine) {
 		v1.PUT("/update/:name", a.updateInstance)
 		v1.DELETE("/delete/:name", a.deleteInstance)
 		v1.POST("/ssh/:name", a.setupSSH)
+		v1.POST("/exec/:name", a.runCommand)
 
 		// System & Users
 		v1.GET("/monitor", a.getMonitorData)
@@ -266,6 +267,24 @@ func (a *API) setupSSH(c *gin.Context) {
 	}
 	a.addLog(c, "ssh", name)
 	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
+func (a *API) runCommand(c *gin.Context) {
+	name := c.Param("name")
+	var req struct {
+		Command string `json:"command" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	output, err := a.manager.Exec(name, []string{"/bin/sh", "-c", req.Command})
+	a.addLog(c, "exec", name)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"output": output, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"output": output})
 }
 
 func (a *API) getMonitorData(c *gin.Context) {

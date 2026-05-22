@@ -93,6 +93,24 @@
                 </div>
             </div>
 
+            <div id="exec" class="view" style="display:none;">
+                <h1 id="exec-title">Run Code</h1>
+                <div class="card" style="max-width: 800px;">
+                    <div class="form-group">
+                        <label>Shell Command</label>
+                        <input type="text" id="exec-command" placeholder="e.g. id, ls -la, or custom script">
+                    </div>
+                    <button class="btn btn-primary" onclick="runExec()" style="width:100%; margin-bottom:24px;">Execute</button>
+
+                    <label style="display:block; margin-bottom:8px; font-weight:700; font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Output</label>
+                    <pre id="exec-output" style="background:#000; color:var(--primary); padding:16px; border:1px solid var(--border); border-radius:4px; min-height:100px; white-space:pre-wrap; font-family:monospace; font-size:0.85rem;"></pre>
+
+                    <div style="display:flex; gap:12px; margin-top:24px;">
+                        <button class="btn" onclick="showTab('instances')" style="flex:1;">Back to Instances</button>
+                    </div>
+                </div>
+            </div>
+
             <div id="edit" class="view" style="display:none;">
                 <h1 id="edit-title">Edit Instance</h1>
                 <div class="card" style="max-width: 600px;">
