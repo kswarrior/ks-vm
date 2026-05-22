@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/schollz/progressbar/v3"
@@ -87,11 +88,19 @@ func ListImages() ([]ImageInfo, error) {
 			continue
 		}
 
+		imgType := "vm"
+		name := entry.Name()
+		if strings.HasSuffix(name, ".docker") {
+			imgType = "container"
+			name = strings.TrimSuffix(name, ".docker")
+		}
+
 		images = append(images, ImageInfo{
-			Name:    entry.Name(),
+			Name:    name,
 			Size:    info.Size(),
 			AddedAt: info.ModTime(),
 			Path:    filepath.Join(ImagesDir, entry.Name()),
+			Type:    imgType,
 		})
 	}
 

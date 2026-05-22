@@ -87,6 +87,12 @@ func GenerateDomainXML(config VMConfig) (string, error) {
 					},
 				},
 			},
+			MemBalloon: &libvirtxml.DomainMemBalloon{
+				Model: "virtio",
+				Stats: &libvirtxml.DomainMemBalloonStats{
+					Period: 5,
+				},
+			},
 		},
 	}
 

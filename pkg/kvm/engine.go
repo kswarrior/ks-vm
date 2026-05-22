@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,9 +24,16 @@ const (
 	BaseDir = "/var/lib/ksvm"
 )
 
+type cpuStat struct {
+	Usage uint64
+	Time  time.Time
+}
+
 // Manager handles interaction with libvirt.
 type Manager struct {
-	conn *libvirt.Connect
+	conn     *libvirt.Connect
+	cpuCache map[string]cpuStat
+	statsMu  sync.RWMutex
 }
 
 // NewManager creates a new Manager and connects to the local libvirt daemon.
@@ -38,7 +46,10 @@ func NewManager() (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to libvirt: %v", err)
 	}
-	return &Manager{conn: conn}, nil
+	return &Manager{
+		conn:     conn,
+		cpuCache: make(map[string]cpuStat),
+	}, nil
 }
 
 // Close closes the libvirt connection.
@@ -85,11 +96,16 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		}
 	}
 
-	if !isVM && (strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/")) {
-		return m.DeployContainer(name, baseImage)
-	}
-
 	if !isVM {
+		// Check for .docker marker
+		markerPath := filepath.Join(ImagesDir, baseImage+".docker")
+		if data, err := os.ReadFile(markerPath); err == nil {
+			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
+		}
+
+		if strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/") {
+			return m.DeployContainer(name, baseImage, opts)
+		}
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
 	}
 
@@ -168,7 +184,7 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 }
 
 // DeployContainer provisions a container instance.
-func (m *Manager) DeployContainer(name, image string) error {
+func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error {
 	destDir := filepath.Join(BaseDir, "containers", name)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -185,10 +201,13 @@ func (m *Manager) DeployContainer(name, image string) error {
 		return err
 	}
 
-	meta := map[string]string{
-		"type":   "container",
-		"image":  image,
-		"status": "stopped",
+	meta := map[string]interface{}{
+		"type":      "container",
+		"image":     image,
+		"status":    "stopped",
+		"cpus":      opts.CPUs,
+		"memory_mb": opts.MemoryMB,
+		"disk_gb":   opts.DiskGB,
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
@@ -249,7 +268,7 @@ func (m *Manager) updateContainerStatus(name, status string) {
 	metaPath := filepath.Join(destDir, "meta.json")
 	metaData, err := os.ReadFile(metaPath)
 	if err == nil {
-		var meta map[string]string
+		var meta map[string]interface{}
 		if err := json.Unmarshal(metaData, &meta); err == nil {
 			meta["status"] = status
 			newMeta, _ := json.Marshal(meta)
@@ -307,7 +326,7 @@ func (m *Manager) Launch(name string) error {
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
-			var meta map[string]string
+			var meta map[string]interface{}
 			if err := json.Unmarshal(metaData, &meta); err == nil {
 				meta["status"] = "running"
 				metaJSON, _ := json.Marshal(meta)
@@ -346,7 +365,7 @@ func (m *Manager) Stop(name string) error {
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
-			var meta map[string]string
+			var meta map[string]interface{}
 			if err := json.Unmarshal(metaData, &meta); err == nil {
 				meta["status"] = "stopped"
 				metaJSON, _ := json.Marshal(meta)
@@ -413,7 +432,7 @@ func (m *Manager) UpdateInstance(oldName, newName string, opts DeployOptions) er
 
 		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
 		if err == nil {
-			var meta map[string]string
+			var meta map[string]interface{}
 			json.Unmarshal(metaData, &meta)
 			if opts.User != "" {
 				meta["user"] = opts.User
@@ -466,6 +485,10 @@ func (m *Manager) Delete(name string) error {
 
 // AddImage registers a base cloud image.
 func (m *Manager) AddImage(name, source string) error {
+	if strings.HasPrefix(source, "docker://") {
+		os.MkdirAll(ImagesDir, 0755)
+		return os.WriteFile(filepath.Join(ImagesDir, name+".docker"), []byte(source), 0644)
+	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		_, err := DownloadImage(name, source)
 		return err
@@ -485,6 +508,44 @@ func (m *Manager) RemoveImage(name string) error {
 }
 
 // Restart reboots a VM/Container gracefully.
+func (m *Manager) SetupSSH(name string) (string, error) {
+	// Use nohup and backgrounding to ensure the process persists
+	cmdStr := fmt.Sprintf("nohup /bin/sh -c 'curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s' > /dev/null 2>&1 &", name)
+
+	domain, err := m.conn.LookupDomainByName(name)
+	if err == nil {
+		// Try Exec first (Guest Agent)
+		_, err := m.Exec(name, []string{"/bin/sh", "-c", cmdStr})
+		if err == nil {
+			return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+		}
+
+		// Fallback to Serial Console Injection
+		stream, err := m.conn.NewStream(0)
+		if err != nil {
+			return "", err
+		}
+		defer stream.Free()
+		if err := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); err != nil {
+			return "", err
+		}
+		// Inject the command
+		stream.Send([]byte("\n"))
+		time.Sleep(500 * time.Millisecond)
+		stream.Send([]byte(cmdStr + "\n"))
+		time.Sleep(1 * time.Second)
+
+		return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+	}
+
+	// For containers, m.Exec is native (nsenter)
+	_, err = m.Exec(name, []string{"/bin/sh", "-c", cmdStr})
+	if err != nil {
+		return "", fmt.Errorf("failed to run SSH setup inside container: %v", err)
+	}
+	return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+}
+
 func (m *Manager) Restart(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -880,18 +941,57 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		memUsage := uint(0)
 		if state == libvirt.DOMAIN_RUNNING {
 			stats, _ := domain.MemoryStats(10, 0)
+			var available, unused uint64
+			foundAvailable, foundUnused := false, false
+
 			for _, s := range stats {
-				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_RSS) {
+				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_AVAILABLE) {
+					available = s.Val
+					foundAvailable = true
+				}
+				if int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_UNUSED) {
+					unused = s.Val
+					foundUnused = true
+				}
+				if memUsage == 0 && int32(s.Tag) == int32(libvirt.DOMAIN_MEMORY_STAT_RSS) {
 					memUsage = uint(s.Val / 1024)
 				}
 			}
+
+			if foundAvailable && foundUnused {
+				memUsage = uint((available - unused) / 1024)
+			}
+
+			if memUsage == 0 {
+				memUsage = uint(info.Memory / 1024)
+			}
+		}
+
+		diskGB := uint(0)
+		if blockInfo, err := domain.GetBlockInfo("vda", 0); err == nil {
+			diskGB = uint(blockInfo.Capacity / 1024 / 1024 / 1024)
+		}
+
+		// CPU Calculation
+		cpuUsage := 0.0
+		if state == libvirt.DOMAIN_RUNNING {
+			m.statsMu.Lock()
+			now := time.Now()
+			if prev, ok := m.cpuCache[name]; ok {
+				duration := now.Sub(prev.Time).Seconds()
+				if duration > 0 {
+					cpuUsage = (float64(info.CpuTime-prev.Usage) / (duration * 1e9)) * 100.0 / float64(info.NrVirtCpu)
+				}
+			}
+			m.cpuCache[name] = cpuStat{Usage: info.CpuTime, Time: now}
+			m.statsMu.Unlock()
 		}
 
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
-			CPUs: uint(info.NrVirtCpu), CPUUsage: 0.0, // Hard to calculate live CPU without interval
+			CPUs: uint(info.NrVirtCpu), CPUUsage: cpuUsage,
 			MemoryMB:    uint(info.MaxMem / 1024),
-			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: 0,
+			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
 		}, nil
 	}
@@ -902,7 +1002,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		var meta map[string]string
+		var meta map[string]interface{}
 		if err := json.Unmarshal(metaData, &meta); err != nil {
 			return nil, err
 		}
@@ -913,11 +1013,28 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			}
 			return nil
 		})
+
+		cpus := uint(1)
+		if c, ok := meta["cpus"].(float64); ok {
+			cpus = uint(c)
+		}
+		memMB := uint(512)
+		if m, ok := meta["memory_mb"].(float64); ok {
+			memMB = uint(m)
+		}
+		diskGB := uint(0)
+		if d, ok := meta["disk_gb"].(float64); ok {
+			diskGB = uint(d)
+		}
+
+		status, _ := meta["status"].(string)
+		image, _ := meta["image"].(string)
+
 		return &VMInfo{
-			Name: name, Status: meta["status"], Type: "container", IPs: []string{"internal"},
-			CPUs: 1, CPUUsage: 0.0, MemoryMB: 512, MemoryUsage: 0,
-			DiskUsage: rootfsUsage, DiskGB: 1,
-			Image: meta["image"],
+			Name: name, Status: status, Type: "container", IPs: []string{"internal"},
+			CPUs: cpus, CPUUsage: 0.0, MemoryMB: memMB, MemoryUsage: 0,
+			DiskUsage: rootfsUsage, DiskGB: diskGB,
+			Image: image,
 		}, nil
 	}
 	return nil, fmt.Errorf("instance %s not found", name)
@@ -930,46 +1047,18 @@ func (m *Manager) List() ([]VMInfo, error) {
 	if err == nil {
 		for _, domain := range domains {
 			name, _ := domain.GetName()
-			state, _, _ := domain.GetState()
-			status := "Unknown"
-			if m.isDeploying(name) {
-				status = "deploying"
-			} else {
-				switch state {
-				case libvirt.DOMAIN_RUNNING:
-					status = "running"
-				case libvirt.DOMAIN_PAUSED:
-					status = "paused"
-				case libvirt.DOMAIN_SHUTOFF:
-					status = "stopped"
-				}
+			if info, err := m.Info(name); err == nil {
+				infos = append(infos, *info)
 			}
-			var ips []string
-			if status == "running" {
-				ifaces, _ := domain.ListAllInterfaceAddresses(libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
-				for _, iface := range ifaces {
-					for _, addr := range iface.Addrs {
-						ips = append(ips, addr.Addr)
-					}
-				}
-			}
-			infos = append(infos, VMInfo{Name: name, Status: status, Type: "vm", IPs: ips})
 		}
 	}
 	entries, _ := os.ReadDir(filepath.Join(BaseDir, "containers"))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			name := entry.Name()
-			status := "stopped"
-			if m.isDeploying(name) {
-				status = "deploying"
-			} else {
-				running, _ := m.isContainerRunning(name)
-				if running {
-					status = "running"
-				}
+			if info, err := m.Info(name); err == nil {
+				infos = append(infos, *info)
 			}
-			infos = append(infos, VMInfo{Name: name, Status: status, Type: "container"})
 		}
 	}
 	return infos, nil

@@ -1,6 +1,6 @@
 let allImages = [];
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     const tabs = document.querySelectorAll('.nav-item');
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
@@ -18,15 +18,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
     }, 4000);
 
-    fetchInstances();
-    preloadImages();
-
-    setTimeout(() => {
-        const splash = document.getElementById('splash');
-        splash.style.opacity = '0';
-        setTimeout(() => splash.style.visibility = 'hidden', 500);
-    }, 1500);
+    // Initial load with splash screen
+    try {
+        await Promise.all([fetchInstances(), preloadImages()]);
+    } catch (e) {
+        console.error("Initial load failed:", e);
+    } finally {
+        hideSplash();
+    }
 });
+
+function hideSplash() {
+    const splash = document.getElementById('splash');
+    if (!splash) return;
+    splash.style.opacity = '0';
+    setTimeout(() => {
+        splash.style.visibility = 'hidden';
+    }, 500);
+}
 
 function showTab(tabId) {
     document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
@@ -45,67 +54,88 @@ function showTab(tabId) {
 }
 
 async function fetchInstances() {
-    const res = await fetch('/api/v1/instances');
-    const data = await res.json();
-    const grid = document.getElementById('instance-grid');
-    grid.innerHTML = '';
-    data.forEach(vm => {
-        const card = document.createElement('div');
-        card.className = 'card';
-        if (vm.Status === 'deploying') {
-            const overlay = document.createElement('div');
-            overlay.className = 'overlay';
-            overlay.innerText = 'DEPLOYING...';
-            card.appendChild(overlay);
-        }
-        const statusClass = `status-${vm.Status}`;
+    try {
+        const res = await fetch('/api/v1/instances');
+        const data = await res.json();
+        const grid = document.getElementById('instance-grid');
+        grid.innerHTML = '';
+        data.forEach(vm => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            if (vm.Status === 'deploying') {
+                const overlay = document.createElement('div');
+                overlay.className = 'overlay';
+                overlay.innerText = 'DEPLOYING...';
+                card.appendChild(overlay);
+            }
+            const statusClass = `status-${vm.Status}`;
 
-        const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
-        const memTotal = (vm.MemoryMB / 1024).toFixed(1);
-        const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
+            const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
+            const memTotal = (vm.MemoryMB / 1024).toFixed(1);
+            const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
+            const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
-        card.innerHTML += `
-            <div class="instance-header">
-                <div class="instance-title">${vm.Name}</div>
-                <div class="instance-status ${statusClass}">${vm.Status}</div>
-            </div>
+            const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
+            const memTotalVal = vm.MemoryMB || 1024;
+            const memPerc = Math.min(100, ((vm.MemoryUsage || 0) / memTotalVal * 100)).toFixed(1);
+            const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
+            const diskPerc = diskTotalBytes > 0 ? Math.min(100, ((vm.DiskUsage || 0) / diskTotalBytes * 100)).toFixed(1) : 0;
 
-            <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
-                <div style="font-size:0.75rem; font-weight:600; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px;">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${vm.Type.toUpperCase()}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
-            </div>
-
-            <div class="stats-line">
-                <div class="stat-item">
-                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
-                    ${vm.CPUs} vCPU
+            card.innerHTML = `
+                <div class="instance-header">
+                    <div class="instance-title">${vm.Name}</div>
+                    <div class="instance-status ${statusClass}">${vm.Status}</div>
                 </div>
-                <div class="stat-item">
-                    <svg viewBox="0 0 24 24"><path d="M2 17h20v2H2zm1.15-4.05L4 14h16l.85-1.05-1.2-1.5L18.8 12H5.2l-.85-.55zm1.3-1.6L4.5 12h15l.05-.65-1.2-1.5L17.5 10H6.5l-.85-.15zM7 2h10v2H7zm0 13h10v2H7z"/></svg>
-                    ${memTotal} GB RAM
-                </div>
-                <div class="stat-item">
-                    <svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-                    ${diskUsed} GB Disk
-                </div>
-            </div>
 
-            <div class="actions-menu">
-                <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
-                    <svg style="width:20px;height:20px;" viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
-                </button>
-                <div id="dropdown-${vm.Name}" class="dropdown">
-                    <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
-                    <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
-                    <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
-                    <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
-                    <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
+                <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
+                    <div style="font-size:0.7rem; font-weight:800; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px; border: 1px solid rgba(59, 130, 246, 0.2);">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700;">${vm.Type.toUpperCase()}</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
                 </div>
-            </div>
-        `;
-        grid.appendChild(card);
-    });
+
+                <div class="metrics-grid">
+                    <div class="stat-item">
+                        <div class="stat-header">
+                            <span><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> CPU</span>
+                            <span>${cpuPerc}%</span>
+                        </div>
+                        <div class="stat-progress"><div class="progress-fill" style="width: ${cpuPerc}%"></div></div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-header">
+                            <span><svg viewBox="0 0 24 24"><path d="M6 2c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2H6zm0 2h5v3H6V4zm7 0h5v3h-5V4zM6 9h5v3H6V9zm7 0h5v3h-5V9zm-7 5h5v3H6v-3zm7 0h5v3h-5v-3zm-7 5h5v1H6v-1zm7 0h5v1h-5v-1z"/></svg> RAM</span>
+                            <span>${memUsed} / ${memTotal} GB</span>
+                        </div>
+                        <div class="stat-progress"><div class="progress-fill" style="width: ${memPerc}%"></div></div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-header">
+                            <span><svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg> DISK</span>
+                            <span>${diskUsed} / ${diskTotal} GB</span>
+                        </div>
+                        <div class="stat-progress"><div class="progress-fill" style="width: ${diskPerc}%"></div></div>
+                    </div>
+                </div>
+
+                <div class="actions-menu">
+                    <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
+                        <svg style="width:20px;height:20px;" viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
+                    </button>
+                    <div id="dropdown-${vm.Name}" class="dropdown">
+                        <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
+                        <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
+                        <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
+                        <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
+                        ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH</div>` : ''}
+                        <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
+                    </div>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    } catch (e) {
+        console.error("Failed to fetch instances:", e);
+    }
 }
 
 function toggleDropdown(e, name) {
@@ -113,12 +143,12 @@ function toggleDropdown(e, name) {
     document.querySelectorAll('.dropdown').forEach(d => {
         if (d.id !== 'dropdown-' + name) d.classList.remove('show');
     });
-    document.getElementById('dropdown-' + name).classList.toggle('show');
+    const dropdown = document.getElementById('dropdown-' + name);
+    if (dropdown) dropdown.classList.toggle('show');
 }
 
 window.onclick = () => {
     document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('show'));
-    document.getElementById('image-dropdown').style.display = 'none';
 };
 
 async function preloadImages() {
@@ -201,6 +231,16 @@ async function action(type, name) {
     fetchInstances();
 }
 
+async function getSSH(name) {
+    const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+        alert("SSH Token: " + data.token);
+    } else {
+        alert("SSH Error: " + data.error);
+    }
+}
+
 async function fetchImages() {
     const res = await fetch('/api/v1/images');
     allImages = await res.json();
@@ -211,7 +251,7 @@ async function fetchImages() {
                 <h3 style="margin:0;">${img.Name}</h3>
                 <span class="badge" style="color:var(--primary);">${img.Type || 'VM'}</span>
             </div>
-            <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(2)} MB</p>
+            <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
             <div style="display:flex; gap:8px;">
                 <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
                 <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
@@ -264,10 +304,10 @@ async function fetchUsers() {
     list.innerHTML = data.map(u => `
         <div class="card">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:700;">${u.username[0].toUpperCase()}</div>
+                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid var(--primary-light);">${u.username[0].toUpperCase()}</div>
                 <div>
                     <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
-                    <div style="font-size:0.8rem; color:var(--text-muted);">${u.email}</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>
                 </div>
             </div>
             <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem;">Delete User</button>
@@ -298,12 +338,12 @@ async function fetchLogs() {
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => `
-        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center;">
+        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
             <div>
                 <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
-                <div style="font-weight:600;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
+                <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
             </div>
-            <div style="font-size:0.8rem; font-weight:700;">${l.user.toUpperCase()}</div>
+            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
         </div>
     `).join('');
 }
