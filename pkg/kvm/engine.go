@@ -509,14 +509,15 @@ func (m *Manager) RemoveImage(name string) error {
 
 // Restart reboots a VM/Container gracefully.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	cmdStr := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
+	// Use nohup and backgrounding to ensure the process persists
+	cmdStr := fmt.Sprintf("nohup /bin/sh -c 'curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s' > /dev/null 2>&1 &", name)
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		// Try Exec first (Guest Agent)
 		_, err := m.Exec(name, []string{"/bin/sh", "-c", cmdStr})
 		if err == nil {
-			return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
+			return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
 		}
 
 		// Fallback to Serial Console Injection
@@ -534,7 +535,7 @@ func (m *Manager) SetupSSH(name string) (string, error) {
 		stream.Send([]byte(cmdStr + "\n"))
 		time.Sleep(1 * time.Second)
 
-		return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
+		return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
 	}
 
 	// For containers, m.Exec is native (nsenter)
@@ -542,7 +543,7 @@ func (m *Manager) SetupSSH(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to run SSH setup inside container: %v", err)
 	}
-	return fmt.Sprintf("ks-It-vm-ks-%s", name), nil
+	return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
 }
 
 func (m *Manager) Restart(name string) error {
