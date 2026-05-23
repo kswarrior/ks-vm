@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initial load
     try {
-        await Promise.all([fetchInstances(), preloadImages()]);
+        await Promise.all([fetchInstances(true), preloadImages()]);
     } catch (e) {
         console.error("Initial load failed:", e);
     } finally {
@@ -51,13 +51,13 @@ function showTab(tabId) {
 
     document.querySelectorAll(`[data-tab="${tabId}"]`).forEach(t => t.classList.add('active'));
 
-    if (tabId === 'instances') fetchInstances();
-    if (tabId === 'images') fetchImages();
-    if (tabId === 'users') fetchUsers();
-    if (tabId === 'log') fetchLogs();
+    if (tabId === 'instances') fetchInstances(true);
+    if (tabId === 'images') fetchImages(true);
+    if (tabId === 'users') fetchUsers(true);
+    if (tabId === 'log') fetchLogs(true);
 }
 
-async function fetchInstances() {
+async function fetchInstances(animate = false) {
     try {
         const res = await fetch('/api/v1/instances');
         const data = await res.json();
@@ -66,7 +66,7 @@ async function fetchInstances() {
 
         data.forEach(vm => {
             const card = document.createElement('div');
-            card.className = 'card instance-card';
+            card.className = 'card instance-card' + (animate ? ' animate-in' : '');
 
             if (vm.Status === 'deploying') {
                 const overlay = document.createElement('div');
@@ -293,12 +293,12 @@ async function runExec() {
     output.scrollTop = output.scrollHeight;
 }
 
-async function fetchImages() {
+async function fetchImages(animate = false) {
     const res = await fetch('/api/v1/images');
     allImages = await res.json();
     const list = document.getElementById('image-list');
     list.innerHTML = allImages.map(img => `
-        <div class="card">
+        <div class="card ${animate ? 'animate-in' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <h3 style="margin:0;">${img.Name}</h3>
                 <span class="badge" style="color:var(--primary); font-size:0.7rem; font-weight:800;">${img.Type.toUpperCase()}</span>
@@ -357,12 +357,12 @@ async function renameImage(name) {
     fetchImages();
 }
 
-async function fetchUsers() {
+async function fetchUsers(animate = false) {
     const res = await fetch('/api/v1/users');
     const data = await res.json();
     const list = document.getElementById('user-list');
     list.innerHTML = data.map(u => `
-        <div class="card">
+        <div class="card ${animate ? 'animate-in' : ''}">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
                 <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid rgba(103, 61, 230, 0.1);">${u.username[0].toUpperCase()}</div>
                 <div>
@@ -401,12 +401,12 @@ async function deleteUser(user) {
     fetchUsers();
 }
 
-async function fetchLogs() {
+async function fetchLogs(animate = false) {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => `
-        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <div>
                 <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
                 <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
