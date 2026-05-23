@@ -1,26 +1,31 @@
 let allImages = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const tabs = document.querySelectorAll('.nav-item');
+    const tabs = document.querySelectorAll('.nav-item, .icon-nav-item');
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             showTab(tab.dataset.tab);
-            if (window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('open');
+            if (window.innerWidth <= 768) {
+                document.getElementById('sidebar').classList.remove('open');
+            }
         });
     });
 
-    document.getElementById('menu-toggle').addEventListener('click', () => {
-        document.getElementById('sidebar').classList.toggle('open');
-    });
+    const menuToggle = document.getElementById('menu-toggle');
+    if (menuToggle) {
+        menuToggle.addEventListener('click', () => {
+            document.getElementById('sidebar').classList.toggle('open');
+        });
+    }
 
     setInterval(() => {
         const activeNavItem = document.querySelector('.nav-item.active');
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
-    }, 4000);
+    }, 5000);
 
-    // Initial load with splash screen
+    // Initial load
     try {
-        await Promise.all([fetchInstances(), preloadImages()]);
+        await Promise.all([fetchInstances(true), preloadImages()]);
     } catch (e) {
         console.error("Initial load failed:", e);
     } finally {
@@ -39,37 +44,38 @@ function hideSplash() {
 
 function showTab(tabId) {
     document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
-    document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.nav-item, .icon-nav-item').forEach(t => t.classList.remove('active'));
 
     const target = document.getElementById(tabId);
     if (target) target.style.display = 'block';
 
-    const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
-    if (navItem) navItem.classList.add('active');
+    document.querySelectorAll(`[data-tab="${tabId}"]`).forEach(t => t.classList.add('active'));
 
-    if (tabId === 'instances') fetchInstances();
-    if (tabId === 'images') fetchImages();
-    if (tabId === 'users') fetchUsers();
-    if (tabId === 'log') fetchLogs();
+    if (tabId === 'instances') fetchInstances(true);
+    if (tabId === 'images') fetchImages(true);
+    if (tabId === 'users') fetchUsers(true);
+    if (tabId === 'log') fetchLogs(true);
 }
 
-async function fetchInstances() {
+async function fetchInstances(animate = false) {
     try {
         const res = await fetch('/api/v1/instances');
         const data = await res.json();
-        const grid = document.getElementById('instance-grid');
-        grid.innerHTML = '';
+        const listContainer = document.getElementById('instance-list');
+        listContainer.innerHTML = '';
+
         data.forEach(vm => {
             const card = document.createElement('div');
-            card.className = 'card';
+            card.className = 'card instance-card' + (animate ? ' animate-in' : '');
+
             if (vm.Status === 'deploying') {
                 const overlay = document.createElement('div');
                 overlay.className = 'overlay';
                 overlay.innerText = 'DEPLOYING...';
                 card.appendChild(overlay);
             }
-            const statusClass = `status-${vm.Status}`;
 
+            const statusClass = `status-${vm.Status}`;
             const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
             const memTotal = (vm.MemoryMB / 1024).toFixed(1);
             const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
@@ -81,57 +87,76 @@ async function fetchInstances() {
             const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
             const diskPerc = diskTotalBytes > 0 ? Math.min(100, ((vm.DiskUsage || 0) / diskTotalBytes * 100)).toFixed(1) : 0;
 
-            card.innerHTML = `
+            const primaryIP = (vm.IPs && vm.IPs.length > 0) ? vm.IPs[0] : 'N/A';
+
+            card.innerHTML += `
                 <div class="instance-header">
-                    <div class="instance-title">${vm.Name}</div>
-                    <div class="instance-status ${statusClass}">${vm.Status}</div>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div class="instance-icon">
+                            <svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>
+                        </div>
+                        <div>
+                            <div class="instance-title">${vm.Name}</div>
+                            <div class="instance-status ${statusClass}">${vm.Status.toUpperCase()}</div>
+                        </div>
+                    </div>
+                    <div class="actions-menu">
+                        <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
+                            <svg viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
+                        </button>
+                        <div id="dropdown-${vm.Name}" class="dropdown">
+                            <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
+                            <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
+                            <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
+                            <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
+                            <div class="dropdown-item" onclick="openExec('${vm.Name}')">RUN CODE</div>
+                            ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH TOKEN</div>` : ''}
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
+                        </div>
+                    </div>
                 </div>
 
-                <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
-                    <div style="font-size:0.7rem; font-weight:800; color:var(--primary); background:var(--primary-light); padding:2px 8px; border-radius:4px; border: 1px solid rgba(59, 130, 246, 0.2);">${vm.IPs && vm.IPs.length > 0 ? vm.IPs[0] : 'NO IP'}</div>
-                    <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700;">${vm.Type.toUpperCase()}</div>
-                    <div style="font-size:0.7rem; color:var(--text-muted);">${vm.Image || 'DEFAULT'}</div>
+                <div class="instance-info-row">
+                    <div class="info-group">
+                        <div class="info-label">IP Address</div>
+                        <div class="info-value">${primaryIP}</div>
+                    </div>
+                    <div class="info-group">
+                        <div class="info-label">Type</div>
+                        <div class="info-value" style="text-transform:uppercase;">${vm.Type}</div>
+                    </div>
                 </div>
 
                 <div class="metrics-grid">
                     <div class="stat-item">
                         <div class="stat-header">
-                            <span><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> CPU</span>
+                            <span>CPU usage</span>
                             <span>${cpuPerc}%</span>
                         </div>
                         <div class="stat-progress"><div class="progress-fill" style="width: ${cpuPerc}%"></div></div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-header">
-                            <span><svg viewBox="0 0 24 24"><path d="M6 2c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2H6zm0 2h5v3H6V4zm7 0h5v3h-5V4zM6 9h5v3H6V9zm7 0h5v3h-5V9zm-7 5h5v3H6v-3zm7 0h5v3h-5v-3zm-7 5h5v1H6v-1zm7 0h5v1h-5v-1z"/></svg> RAM</span>
+                            <span>Memory usage</span>
                             <span>${memUsed} / ${memTotal} GB</span>
                         </div>
                         <div class="stat-progress"><div class="progress-fill" style="width: ${memPerc}%"></div></div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-header">
-                            <span><svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg> DISK</span>
+                            <span>Disk usage</span>
                             <span>${diskUsed} / ${diskTotal} GB</span>
                         </div>
                         <div class="stat-progress"><div class="progress-fill" style="width: ${diskPerc}%"></div></div>
                     </div>
                 </div>
 
-                <div class="actions-menu">
-                    <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
-                        <svg style="width:20px;height:20px;" viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
-                    </button>
-                    <div id="dropdown-${vm.Name}" class="dropdown">
-                        <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
-                        <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
-                        <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
-                        <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
-                        ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH</div>` : ''}
-                        <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
-                    </div>
+                <div style="margin-top:20px;">
+                    <button class="btn btn-outline" onclick="action('restart', '${vm.Name}')" style="width:100%;">Reboot VPS</button>
                 </div>
             `;
-            grid.appendChild(card);
+            listContainer.appendChild(card);
         });
     } catch (e) {
         console.error("Failed to fetch instances:", e);
@@ -152,8 +177,10 @@ window.onclick = () => {
 };
 
 async function preloadImages() {
-    const res = await fetch('/api/v1/images');
-    allImages = await res.json();
+    try {
+        const res = await fetch('/api/v1/images');
+        allImages = await res.json();
+    } catch(e) {}
 }
 
 function filterImages() {
@@ -227,6 +254,7 @@ async function updateInstance() {
 }
 
 async function action(type, name) {
+    if (type === 'delete' && !confirm(`Are you sure you want to delete ${name}?`)) return;
     await fetch(`/api/v1/${type}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
     fetchInstances();
 }
@@ -235,25 +263,49 @@ async function getSSH(name) {
     const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
     const data = await res.json();
     if (res.ok) {
-        alert("SSH Token: " + data.token);
+        alert("SSH Setup Token: " + data.token);
     } else {
         alert("SSH Error: " + data.error);
     }
 }
 
-async function fetchImages() {
+function openExec(name) {
+    document.getElementById('exec-title').innerText = "Terminal: " + name;
+    document.getElementById('exec-output').innerText = "";
+    document.getElementById('exec-command').value = "";
+    showTab('exec');
+}
+
+async function runExec() {
+    const name = document.getElementById('exec-title').innerText.split(': ')[1];
+    const cmd = document.getElementById('exec-command').value;
+    const output = document.getElementById('exec-output');
+    output.innerText += "> " + cmd + "\n";
+
+    const res = await fetch(`/api/v1/exec/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd })
+    });
+    const data = await res.json();
+    if (data.output) output.innerText += data.output + "\n";
+    if (data.error) output.innerText += "Error: " + data.error + "\n";
+    output.scrollTop = output.scrollHeight;
+}
+
+async function fetchImages(animate = false) {
     const res = await fetch('/api/v1/images');
     allImages = await res.json();
     const list = document.getElementById('image-list');
     list.innerHTML = allImages.map(img => `
-        <div class="card">
+        <div class="card ${animate ? 'animate-in' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <h3 style="margin:0;">${img.Name}</h3>
-                <span class="badge" style="color:var(--primary);">${img.Type || 'VM'}</span>
+                <span class="badge" style="color:var(--primary); font-size:0.7rem; font-weight:800;">${img.Type.toUpperCase()}</span>
             </div>
             <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
             <div style="display:flex; gap:8px;">
-                <button class="btn" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
+                <button class="btn btn-outline" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
                 <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
             </div>
         </div>
@@ -261,11 +313,11 @@ async function fetchImages() {
 }
 
 function showAddImageForm(show = true) {
-    document.getElementById('add-image-form').style.display = show ? 'block' : 'none';
+    showTab('add-image');
 }
 
 async function addImage() {
-    const card = document.getElementById('add-image-form');
+    const card = document.querySelector('#add-image .card');
     const overlay = document.createElement('div');
     overlay.className = 'overlay';
     overlay.innerText = 'DOWNLOADING...';
@@ -276,10 +328,14 @@ async function addImage() {
         url: document.getElementById('img-url').value,
         type: document.getElementById('img-type').value
     };
-    const res = await fetch('/api/v1/images', { method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'} });
+    const res = await fetch('/api/v1/images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
     card.removeChild(overlay);
     if (res.ok) {
-        showAddImageForm(false);
+        showTab('images');
         fetchImages();
     } else alert("Error adding image");
 }
@@ -293,18 +349,22 @@ async function removeImage(name) {
 async function renameImage(name) {
     const newName = prompt("New name for " + name, name);
     if (!newName) return;
-    await fetch('/api/v1/images/rename', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_name: name, new_name: newName }) });
+    await fetch('/api/v1/images/rename', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_name: name, new_name: newName })
+    });
     fetchImages();
 }
 
-async function fetchUsers() {
+async function fetchUsers(animate = false) {
     const res = await fetch('/api/v1/users');
     const data = await res.json();
     const list = document.getElementById('user-list');
     list.innerHTML = data.map(u => `
-        <div class="card">
+        <div class="card ${animate ? 'animate-in' : ''}">
             <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid var(--primary-light);">${u.username[0].toUpperCase()}</div>
+                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid rgba(103, 61, 230, 0.1);">${u.username[0].toUpperCase()}</div>
                 <div>
                     <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
                     <div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>
@@ -320,8 +380,16 @@ function showAddUserForm(show = true) {
 }
 
 async function addUser() {
-    const data = { username: document.getElementById('user-name').value, email: document.getElementById('user-email').value, password: document.getElementById('user-pass').value };
-    await fetch('/api/v1/users', { method: 'POST', body: JSON.stringify(data), headers: {'Content-Type': 'application/json'} });
+    const data = {
+        username: document.getElementById('user-name').value,
+        email: document.getElementById('user-email').value,
+        password: document.getElementById('user-pass').value
+    };
+    await fetch('/api/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
     showAddUserForm(false);
     fetchUsers();
 }
@@ -333,12 +401,12 @@ async function deleteUser(user) {
     fetchUsers();
 }
 
-async function fetchLogs() {
+async function fetchLogs(animate = false) {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => `
-        <div class="card" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <div>
                 <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
                 <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>

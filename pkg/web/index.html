@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ksvm | Management Console</title>
+    <title>KS VM | Cloud Panel</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div id="splash">
         <div class="splash-content">
             <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.8l8 4v8.4l-8 4-8-4V8.8l8-4z"/></svg>
-            <h1>KSVM PANEL</h1>
+            <h2 style="font-weight:800; color:#111; letter-spacing: -0.02em;">KS VM</h2>
             <div class="loader-line"></div>
         </div>
     </div>
@@ -18,140 +18,192 @@
     <header class="header">
         <div class="brand">
             <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.8l8 4v8.4l-8 4-8-4V8.8l8-4z"/></svg>
-            KSVM PANEL
+            KS VM
         </div>
-        <button id="menu-toggle" style="background:none; border:none; display:none;">
-            <svg style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-        </button>
+
+        <div class="top-nav">
+            <div class="search-bar">
+                <svg style="width:18px;height:18px;" viewBox="0 0 24 24"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,18.8L19,20.2L14.2,15.5V14.7L13.93,14.43C12.79,15.41 11.3,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C5.91,5 3,7.91 3,9.5C3,13.09 5.91,16 9.5,16C13.09,16 16,13.09 16,9.5C16,7.91 13.09,5 9.5,5Z"/></svg>
+                Search for VPS, images...
+            </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:16px;">
+            <button id="menu-toggle" style="background:none; border:none; display:none; cursor:pointer; color:var(--text-main); padding:8px;">
+                <svg style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"/></svg>
+            </button>
+            <div class="hide-mobile" style="width:36px;height:36px;background:var(--primary-light);border-radius:18px; display:flex; align-items:center; justify-content:center;">
+                <svg style="width:20px;height:20px;color:var(--primary);" viewBox="0 0 24 24"><path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z" fill="currentColor"/></svg>
+            </div>
+        </div>
     </header>
 
     <div class="app-container">
+        <aside class="sidebar-icons">
+            <div class="icon-nav-item active" data-tab="instances">
+                <svg viewBox="0 0 24 24"><path d="M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z"/></svg>
+            </div>
+            <div class="icon-nav-item" data-tab="images">
+                <svg viewBox="0 0 24 24"><path d="M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V4C4,2.89 4.89,2 6,2M11,15V12H9V15H6V17H9V20H11V17H14V15H11Z"/></svg>
+            </div>
+            <div class="icon-nav-item" data-tab="users">
+                <svg viewBox="0 0 24 24"><path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z"/></svg>
+            </div>
+        </aside>
+
         <aside id="sidebar" class="sidebar">
+            <div style="padding:0 24px; margin-bottom:24px; font-weight:800; color:#000; font-size:0.75rem; letter-spacing:0.08em; opacity:0.5;">MANAGEMENT</div>
             <nav>
                 <div class="nav-item active" data-tab="instances">
-                    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/></svg>
+                    <svg viewBox="0 0 24 24"><path d="M13,3H6C4.89,3 4,3.89 4,5V21C4,22.11 4.89,23 6,23H18C19.11,23 20,22.11 20,21V9L14,3M13,4.5L18.5,10H13V4.5M6,21V5H12V11H18V21H6Z"/></svg>
                     Instances
                 </div>
                 <div class="nav-item" data-tab="images">
-                    <svg viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z"/></svg>
-                    Images
+                    <svg viewBox="0 0 24 24"><path d="M19,5V19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M14,17V15H10V17H14M12,9L10,13H14L12,9Z"/></svg>
+                    OS Images
                 </div>
                 <div class="nav-item" data-tab="users">
-                    <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                    <svg viewBox="0 0 24 24"><path d="M12,12C14.21,12 16,10.21 16,8C16,5.79 14.21,4 12,4C9.79,4 8,5.79 8,8C8,10.21 9.79,12 12,12M12,14C9.33,14 4,15.34 4,18V20H20V18C20,15.34 14.67,14 12,14Z"/></svg>
                     Users
                 </div>
                 <div class="nav-item" data-tab="log">
-                    <svg viewBox="0 0 24 24"><path d="M13 3H6c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V9l-7-6zm0 1.5L18.5 9H13V4.5zM6 20V5h6v5h5.5v10H6z"/></svg>
-                    Audit Log
+                    <svg viewBox="0 0 24 24"><path d="M13,3H6C4.89,3 4,3.89 4,5V21C4,22.11 4.89,23 6,23H18C19.11,23 20,22.11 20,21V9L14,3M13,4.5L18.5,10H13V4.5M6,21V5H12V11H18V21H6Z"/></svg>
+                    Logs
                 </div>
             </nav>
         </aside>
 
         <main class="main-view">
             <div id="instances" class="view">
-                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h1 style="font-size: 1.5rem; font-weight: 800;">Instances</h1>
-                    <button class="btn btn-primary" onclick="showTab('deploy')">+ Deploy Instance</button>
+                <div class="page-header">
+                    <div style="display:flex; justify-content: space-between; align-items: center;">
+                        <h1 style="font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em;">Instances</h1>
+                        <button class="btn btn-primary" onclick="showTab('deploy')">+ Deploy VPS</button>
+                    </div>
                 </div>
-                <div class="grid" id="instance-grid"></div>
+                <div id="instance-list"></div>
             </div>
 
             <div id="deploy" class="view" style="display:none;">
-                <h1 style="margin-bottom:24px;">Deploy New Instance</h1>
+                <div class="page-header">
+                    <h1 style="font-size: 1.75rem; font-weight: 800;">Deploy New VPS</h1>
+                </div>
                 <div class="card" style="max-width: 800px;">
-                    <div class="form-group">
-                        <label>Instance Name</label>
-                        <input type="text" id="deploy-name" placeholder="e.g. web-server-01">
-                    </div>
-
-                    <div class="form-group">
-                        <label>Select Base Image</label>
-                        <div style="position:relative;">
-                            <input type="text" id="image-search" placeholder="Search images..." onkeyup="filterImages()" style="margin-bottom:0;">
-                            <div id="image-dropdown" class="image-dropdown"></div>
-                        </div>
+                    <div class="form-group"><label>Instance Name</label><input type="text" id="deploy-name" placeholder="e.g. web-server-01"></div>
+                    <div class="form-group" style="position:relative;">
+                        <label>Select Operating System</label>
+                        <input type="text" id="image-search" placeholder="Search OS images..." onkeyup="filterImages()">
+                        <div id="image-dropdown" class="dropdown" style="width:100%; top:100%; left:0;"></div>
                         <input type="hidden" id="deploy-image">
                     </div>
-
                     <div class="form-row">
-                        <div class="form-group"><label>vCPUs</label><input type="number" id="deploy-cpu" value="1"></div>
-                        <div class="form-group"><label>RAM (MiB)</label><input type="number" id="deploy-ram" value="1024"></div>
+                        <div class="form-group"><label>vCPU Cores</label><input type="number" id="deploy-cpu" value="1"></div>
+                        <div class="form-group"><label>Memory (MiB)</label><input type="number" id="deploy-ram" value="1024"></div>
                     </div>
+                    <div class="form-group"><label>Disk Size (GB)</label><input type="number" id="deploy-disk" value="20"></div>
                     <div class="form-row">
-                        <div class="form-group"><label>Disk (GB)</label><input type="number" id="deploy-disk" value="0"></div>
-                        <div class="form-group"><label>User</label><input type="text" id="deploy-user" placeholder="ubuntu"></div>
+                        <div class="form-group"><label>Admin Username</label><input type="text" id="deploy-user" value="root"></div>
+                        <div class="form-group"><label>Admin Password</label><input type="password" id="deploy-pass"></div>
                     </div>
-                    <div class="form-group">
-                        <label>Password</label>
-                        <input type="password" id="deploy-pass">
+                    <div style="display:flex; gap:12px; margin-top:12px;">
+                        <button class="btn btn-primary" onclick="deployInstance()">Deploy Now</button>
+                        <button class="btn btn-outline" onclick="showTab('instances')">Cancel</button>
                     </div>
+                </div>
+            </div>
 
-                    <div style="display:flex; gap:12px; margin-top:24px;">
-                        <button class="btn btn-primary" onclick="deployInstance()" style="flex:1;">Provision Now</button>
-                        <button class="btn" onclick="showTab('instances')" style="border-color:#ccc; color:#666;">Cancel</button>
+            <div id="exec" class="view" style="display:none;">
+                <div class="page-header">
+                    <h1 id="exec-title" style="font-size: 1.75rem; font-weight: 800;">Terminal</h1>
+                </div>
+                <div class="card">
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>Command</label>
+                        <div style="display:flex; gap:10px;">
+                            <input type="text" id="exec-command" placeholder="Enter shell command..." onkeydown="if(event.key==='Enter') runExec()">
+                            <button class="btn btn-primary" onclick="runExec()">Execute</button>
+                        </div>
                     </div>
+                    <pre id="exec-output" style="background:#0f172a; color:#f8fafc; padding:20px; border-radius:12px; font-family:'Fira Code', monospace; font-size:0.85rem; min-height:300px; line-height:1.5;"></pre>
                 </div>
             </div>
 
             <div id="edit" class="view" style="display:none;">
-                <h1 id="edit-title" style="margin-bottom:24px;">Edit Instance</h1>
+                <div class="page-header">
+                    <h1 id="edit-title" style="font-size: 1.75rem; font-weight: 800;">Settings</h1>
+                </div>
                 <div class="card" style="max-width: 600px;">
-                    <div class="form-group">
-                        <label>Instance Name</label>
-                        <input type="text" id="edit-name">
+                    <div class="form-group"><label>Display Name</label><input type="text" id="edit-name"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label>vCPU Cores</label><input type="number" id="edit-cpu"></div>
+                        <div class="form-group"><label>Memory (MiB)</label><input type="number" id="edit-ram"></div>
                     </div>
                     <div class="form-row">
-                        <div class="form-group"><label>CPUs</label><input type="number" id="edit-cpu"></div>
-                        <div class="form-group"><label>RAM (MB)</label><input type="number" id="edit-ram"></div>
+                        <div class="form-group"><label>SSH Username</label><input type="text" id="edit-user"></div>
+                        <div class="form-group"><label>New Password</label><input type="password" id="edit-pass" placeholder="Keep empty to skip"></div>
                     </div>
-                    <div class="form-row">
-                        <div class="form-group"><label>User</label><input type="text" id="edit-user"></div>
-                        <div class="form-group"><label>Password</label><input type="password" id="edit-pass" placeholder="Leave empty to keep current"></div>
-                    </div>
-                    <div style="display:flex; gap:12px; margin-top:24px;">
-                        <button class="btn btn-primary" onclick="updateInstance()" style="flex:1;">Save Changes</button>
-                        <button class="btn" onclick="showTab('instances')" style="flex:1; border-color:#ccc; color:#666;">Cancel</button>
+                    <div style="display:flex; gap:12px;">
+                        <button class="btn btn-primary" onclick="updateInstance()">Save Settings</button>
+                        <button class="btn btn-outline" onclick="showTab('instances')">Cancel</button>
                     </div>
                 </div>
             </div>
 
             <div id="images" class="view" style="display:none;">
-                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h1 style="font-size: 1.5rem; font-weight: 800;">Base Images</h1>
-                    <button class="btn btn-primary" onclick="showAddImageForm()">+ Add Image</button>
+                <div class="page-header">
+                    <div style="display:flex; justify-content: space-between; align-items: center;">
+                        <h1 style="font-size: 1.75rem; font-weight: 800;">OS Images</h1>
+                        <button class="btn btn-primary" onclick="showTab('add-image')">+ Add Image</button>
+                    </div>
                 </div>
-                <div id="add-image-form" class="card" style="display:none; max-width: 600px; margin-bottom:32px;">
-                    <label>Name</label><input type="text" id="img-name">
-                    <label>URL/Path</label><input type="text" id="img-url">
-                    <label>Type</label>
-                    <select id="img-type" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:16px;">
-                        <option value="vm">Virtual Machine</option>
-                        <option value="container">Container</option>
-                    </select>
-                    <button class="btn btn-primary" onclick="addImage()">Register</button>
-                    <button class="btn" onclick="showAddImageForm(false)">Cancel</button>
+                <div class="grid-classic" id="image-list"></div>
+            </div>
+
+            <div id="add-image" class="view" style="display:none;">
+                <div class="page-header">
+                    <h1 style="font-size: 1.75rem; font-weight: 800;">Add OS Image</h1>
                 </div>
-                <div class="grid" id="image-list"></div>
+                <div class="card" style="max-width: 600px;">
+                    <div class="form-group"><label>Image Name</label><input type="text" id="img-name" placeholder="e.g. Ubuntu 22.04"></div>
+                    <div class="form-group"><label>Source URL (QCOW2 or Docker)</label><input type="text" id="img-url" placeholder="https://... or docker://..."></div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="img-type">
+                            <option value="vm">Virtual Machine (KVM)</option>
+                            <option value="container">Container (Namespaces)</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:12px;">
+                        <button class="btn btn-primary" onclick="addImage()">Add Image Now</button>
+                        <button class="btn btn-outline" onclick="showTab('images')">Cancel</button>
+                    </div>
+                </div>
             </div>
 
             <div id="users" class="view" style="display:none;">
-                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h1 style="font-size: 1.5rem; font-weight: 800;">Users</h1>
-                    <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
+                <div class="page-header">
+                    <div style="display:flex; justify-content: space-between; align-items: center;">
+                        <h1 style="font-size: 1.75rem; font-weight: 800;">Users</h1>
+                        <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
+                    </div>
                 </div>
-                <div id="add-user-form" class="card" style="display:none; max-width: 600px; margin-bottom:32px;">
-                    <label>Username</label><input type="text" id="user-name">
-                    <label>Email</label><input type="email" id="user-email">
-                    <label>Password</label><input type="password" id="user-pass">
-                    <button class="btn btn-primary" onclick="addUser()">Create</button>
-                    <button class="btn" onclick="showAddUserForm(false)">Cancel</button>
+                <div id="add-user-form" class="card" style="display:none; max-width: 500px;">
+                    <div class="form-group"><label>Username</label><input type="text" id="user-name"></div>
+                    <div class="form-group"><label>Email Address</label><input type="email" id="user-email"></div>
+                    <div class="form-group"><label>Password</label><input type="password" id="user-pass"></div>
+                    <div style="display:flex; gap:12px;">
+                        <button class="btn btn-primary" onclick="addUser()">Create User</button>
+                        <button class="btn btn-outline" onclick="showAddUserForm(false)">Cancel</button>
+                    </div>
                 </div>
-                <div class="grid" id="user-list"></div>
+                <div class="grid-classic" id="user-list"></div>
             </div>
 
             <div id="log" class="view" style="display:none;">
-                <h1 style="margin-bottom:32px;">Audit Log</h1>
-                <div id="log-list" style="display:flex; flex-direction:column; gap:16px;"></div>
+                <div class="page-header">
+                    <h1 style="font-size: 1.75rem; font-weight: 800;">Logs</h1>
+                </div>
+                <div id="log-list"></div>
             </div>
         </main>
     </div>

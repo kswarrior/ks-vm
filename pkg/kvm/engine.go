@@ -530,8 +530,8 @@ func (m *Manager) SetupSSH(name string) (string, error) {
 			return "", err
 		}
 		// Inject the command
-		stream.Send([]byte("\n"))
-		time.Sleep(500 * time.Millisecond)
+		stream.Send([]byte("\n\n"))
+		time.Sleep(1 * time.Second)
 		stream.Send([]byte(cmdStr + "\n"))
 		time.Sleep(1 * time.Second)
 
@@ -600,6 +600,9 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	cmdJSON, _ := json.Marshal(execCmd)
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
 	if err != nil {
+		if strings.Contains(err.Error(), "Guest agent is not responding") {
+			return "", fmt.Errorf("QEMU Guest Agent is not connected. Please ensure it is installed and running in the guest OS.")
+		}
 		return "", err
 	}
 
