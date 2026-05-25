@@ -333,6 +333,11 @@ async function fetchHostMetrics(init = false) {
 }
 
 function initCharts(m) {
+    // Destroy existing charts to prevent "blank" or "overlapping" issues
+    Object.keys(charts).forEach(key => {
+        if (charts[key] && typeof charts[key].destroy === 'function') charts[key].destroy();
+    });
+
     const ctxCpu = document.getElementById('cpuChart').getContext('2d');
     charts.cpu = new Chart(ctxCpu, {
         type: 'line',

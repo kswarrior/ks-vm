@@ -83,7 +83,13 @@ func setupContainer(name, rootfs string) error {
 	}
 
 	// 2. Prepare pivot_root
-	// pivot_root requires the new root to be a mount point
+	// pivot_root requires that the new root and the old root are on different filesystems.
+	// We make rootfs a mount point by bind-mounting it to itself.
+	// Also ensure that the mount propagation is private so we don't affect the host.
+	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("failed to set mount propagation to private: %v", err)
+	}
+
 	if err := syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 		return fmt.Errorf("failed to bind mount rootfs: %v", err)
 	}

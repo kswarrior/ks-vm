@@ -19,6 +19,18 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
+	// Intercept internal-run early to bypass Cobra flag parsing for container arguments
+	if len(os.Args) > 3 && os.Args[1] == "internal-run" {
+		name := os.Args[2]
+		dir := os.Args[3]
+		args := os.Args[4:]
+		if err := container.Run(name, dir, args); err != nil {
+			fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
