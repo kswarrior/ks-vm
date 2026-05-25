@@ -512,8 +512,9 @@ func (m *Manager) RemoveImage(name string) error {
 
 // Restart reboots a VM/Container gracefully.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use setsid, nohup and full redirection to ensure the process persists in background
-	cmdStr := fmt.Sprintf("setsid nohup /bin/sh -c 'curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s' > /tmp/ssh.log 2>&1 &", name)
+	// Use a double-nohup wrapper to ensure the process is completely decoupled from the session
+	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
+	cmdStr := fmt.Sprintf("nohup sh -c 'nohup %s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -619,7 +620,16 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			stream.Send([]byte("\n\n"))
 			time.Sleep(200 * time.Millisecond)
 			stream.Send([]byte(fullCmd + "\n"))
-			return "Command injected via serial console (no output capture available).", nil
+
+			// Best effort capture of what appears next
+			buf := make([]byte, 4096)
+			time.Sleep(1 * time.Second)
+			n, _ := stream.Recv(buf)
+			res := string(buf[:n])
+			if res == "" {
+				res = "(no output captured from console)"
+			}
+			return "Command injected via serial console. Output preview:\n" + res, nil
 		}
 		return "", err
 	}

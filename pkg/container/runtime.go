@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -60,31 +59,35 @@ func Run(name, rootDir string, args []string) error {
 	}
 
 	// 6. Ensure /bin/sh compatibility (merged-usr support)
-	if _, err := os.Stat("/bin/sh"); err != nil {
+	if _, err := os.Lstat("/bin/sh"); err != nil {
+		os.MkdirAll("/bin", 0755)
 		if _, err := os.Stat("/usr/bin/sh"); err == nil {
 			os.Symlink("/usr/bin/sh", "/bin/sh")
 		} else if _, err := os.Stat("/usr/bin/dash"); err == nil {
 			os.Symlink("/usr/bin/dash", "/bin/sh")
 		} else if _, err := os.Stat("/usr/bin/bash"); err == nil {
 			os.Symlink("/usr/bin/bash", "/bin/sh")
+		} else if _, err := os.Stat("/bin/bash"); err == nil {
+			os.Symlink("/bin/bash", "/bin/sh")
 		}
 	}
 
-	// Set a basic PATH
-	env := os.Environ()
-	hasPath := false
-	for _, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			hasPath = true
-			break
-		}
-	}
-	if !hasPath {
-		env = append(env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	// Clean environment and set basic variables
+	env := []string{
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOME=/root",
+		"USER=root",
+		"TERM=xterm-256color",
+		"LANG=en_US.UTF-8",
 	}
 
 	path, err := exec.LookPath(args[0])
 	if err != nil {
+		// Diagnostic helper: list /bin and /usr/bin if shell not found
+		fmt.Fprintf(os.Stderr, "Diagnostic: listing /bin:\n")
+		if entries, dErr := os.ReadDir("/bin"); dErr == nil {
+			for _, e := range entries { fmt.Fprintf(os.Stderr, "  %s\n", e.Name()) }
+		}
 		return fmt.Errorf("command %s not found: %v", args[0], err)
 	}
 

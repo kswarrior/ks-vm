@@ -49,6 +49,7 @@ func PullAndUnpack(imageSource, destDir string) error {
 	for _, layer := range manifest.Layers {
 		fmt.Printf("Downloading and extracting layer: %s\n", layer.Digest)
 		if err := downloadAndExtractLayer(repo, layer.Digest, token, rootfs); err != nil {
+			fmt.Printf("Error extracting layer %s: %v\n", layer.Digest, err)
 			return err
 		}
 	}
@@ -162,8 +163,19 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 
 		// Handle Docker whiteouts
 		if strings.HasPrefix(filepath.Base(relPath), ".wh.") {
-			whiteoutFile := filepath.Join(filepath.Dir(target), strings.TrimPrefix(filepath.Base(relPath), ".wh."))
-			os.RemoveAll(whiteoutFile)
+			if filepath.Base(relPath) == ".wh..wh.opq" {
+				// Opaque whiteout: remove all entries in the directory
+				dir := filepath.Dir(target)
+				entries, _ := os.ReadDir(dir)
+				for _, entry := range entries {
+					if entry.Name() != ".wh..wh.opq" {
+						os.RemoveAll(filepath.Join(dir, entry.Name()))
+					}
+				}
+			} else {
+				whiteoutFile := filepath.Join(filepath.Dir(target), strings.TrimPrefix(filepath.Base(relPath), ".wh."))
+				os.RemoveAll(whiteoutFile)
+			}
 			continue
 		}
 
@@ -176,8 +188,8 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			// Remove existing file to handle layer overwrites
-			os.Remove(target)
+			// Remove existing entry (file or dir) to handle layer type mismatches
+			os.RemoveAll(target)
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				continue
@@ -189,11 +201,11 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 			f.Close()
 		case tar.TypeSymlink:
 			os.MkdirAll(filepath.Dir(target), 0755)
-			os.Remove(target)
+			os.RemoveAll(target)
 			os.Symlink(header.Linkname, target)
 		case tar.TypeLink:
 			os.MkdirAll(filepath.Dir(target), 0755)
-			os.Remove(target)
+			os.RemoveAll(target)
 			oldTarget := filepath.Join(dest, header.Linkname)
 			os.Link(oldTarget, target)
 		}

@@ -321,19 +321,24 @@ async function fetchHostMetrics(init = false) {
         if (!res.ok) throw new Error("API status " + res.status);
         const data = await res.json();
         const m = data.metrics;
+
+        const activeInstEl = document.getElementById('sys-active-inst');
+        if (activeInstEl) activeInstEl.innerText = data.active_instances !== undefined ? data.active_instances : "N/A";
+
+        const uptimeEl = document.getElementById('sys-uptime');
+        if (uptimeEl) uptimeEl.innerText = (m && m.uptime) ? (m.uptime / 3600).toFixed(1) + " hours" : "N/A";
+
         if (!m) {
             console.warn("No metrics data received");
+            if (init) document.querySelectorAll('.view#system .card').forEach(c => c.innerHTML += '<p style="color:var(--warning);font-size:0.7rem;">Metrics partially unavailable</p>');
             return;
         }
-
-        document.getElementById('sys-active-inst').innerText = data.active_instances || 0;
-        document.getElementById('sys-uptime').innerText = m.uptime ? (m.uptime / 3600).toFixed(1) + " hours" : "N/A";
 
         if (!window.Chart) {
             if (init) {
                 document.querySelectorAll('.view#system .card').forEach(c => {
                     if (!c.querySelector('.error-msg')) {
-                        c.innerHTML += '<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Chart.js not loaded. Check connection.</p>';
+                        c.innerHTML += '<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Chart.js library missing</p>';
                     }
                 });
             }
@@ -346,8 +351,14 @@ async function fetchHostMetrics(init = false) {
     } catch (e) {
         console.error("Host metrics failed:", e);
         if (init) {
-            document.getElementById('sys-active-inst').innerText = "ERR";
-            document.getElementById('sys-uptime').innerText = "ERR";
+            const activeInstEl = document.getElementById('sys-active-inst');
+            if (activeInstEl) activeInstEl.innerText = "ERROR";
+            const uptimeEl = document.getElementById('sys-uptime');
+            if (uptimeEl) uptimeEl.innerText = "Service Unavailable";
+
+            document.querySelectorAll('.view#system .card').forEach(c => {
+               if (!c.querySelector('.error-msg')) c.innerHTML += `<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Connection failed: ${e.message}</p>`;
+            });
         }
     }
 }
@@ -358,7 +369,9 @@ function initCharts(m) {
         if (charts[key] && typeof charts[key].destroy === 'function') charts[key].destroy();
     });
 
-    const ctxCpu = document.getElementById('cpuChart').getContext('2d');
+    const cpuCanvas = document.getElementById('cpuChart');
+    if (!cpuCanvas) return;
+    const ctxCpu = cpuCanvas.getContext('2d');
     charts.cpu = new Chart(ctxCpu, {
         type: 'line',
         data: { labels: Array(10).fill(''), datasets: [{ label: 'CPU %', data: Array(10).fill(0), borderColor: '#673de6', tension: 0.4 }] },

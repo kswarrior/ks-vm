@@ -288,7 +288,12 @@ func (a *API) runCommand(c *gin.Context) {
 }
 
 func (a *API) getMonitorData(c *gin.Context) {
-	metrics, _ := kvm.GetHostMetrics()
+	metrics, err := kvm.GetHostMetrics()
+	if err != nil {
+		// Return partial data if metrics fail, don't just error out
+		metrics = kvm.HostMetrics{}
+	}
+
 	instances, _ := a.manager.List()
 
 	active := 0
