@@ -21,7 +21,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(() => {
         const activeNavItem = document.querySelector('.nav-item.active');
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
-    }, 5000);
+        if (activeNavItem && activeNavItem.dataset.tab === 'system') fetchHostMetrics();
+    }, 2000);
 
     // Initial load
     try {
@@ -55,6 +56,7 @@ function showTab(tabId) {
     if (tabId === 'images') fetchImages(true);
     if (tabId === 'users') fetchUsers(true);
     if (tabId === 'log') fetchLogs(true);
+    if (tabId === 'system') fetchHostMetrics(true);
 }
 
 async function fetchInstances(animate = false) {
@@ -310,6 +312,87 @@ async function fetchImages(animate = false) {
             </div>
         </div>
     `).join('');
+}
+
+let charts = {};
+async function fetchHostMetrics(init = false) {
+    try {
+        const res = await fetch('/api/v1/monitor');
+        const data = await res.json();
+        const m = data.metrics;
+
+        document.getElementById('sys-active-inst').innerText = data.active_instances;
+        document.getElementById('sys-uptime').innerText = (m.uptime / 3600).toFixed(1) + " hours";
+
+        if (init || !charts.cpu) initCharts(m);
+        else updateCharts(m);
+
+    } catch (e) {
+        console.error("Host metrics failed:", e);
+    }
+}
+
+function initCharts(m) {
+    const ctxCpu = document.getElementById('cpuChart').getContext('2d');
+    charts.cpu = new Chart(ctxCpu, {
+        type: 'line',
+        data: { labels: Array(10).fill(''), datasets: [{ label: 'CPU %', data: Array(10).fill(0), borderColor: '#673de6', tension: 0.4 }] },
+        options: { animation: false, scales: { y: { min: 0, max: 100 } } }
+    });
+
+    const ctxRam = document.getElementById('ramChart').getContext('2d');
+    charts.ram = new Chart(ctxRam, {
+        type: 'doughnut',
+        data: { labels: ['Used', 'Free'], datasets: [{ data: [m.mem_used, m.mem_total - m.mem_used], backgroundColor: ['#673de6', '#f3f4f6'] }] },
+        options: { animation: false }
+    });
+
+    const ctxDisk = document.getElementById('diskChart').getContext('2d');
+    charts.disk = new Chart(ctxDisk, {
+        type: 'pie',
+        data: { labels: ['Used', 'Free'], datasets: [{ data: [m.disk_used, m.disk_total - m.disk_used], backgroundColor: ['#ef4444', '#f3f4f6'] }] },
+        options: { animation: false }
+    });
+
+    const ctxNet = document.getElementById('netChart').getContext('2d');
+    charts.net = new Chart(ctxNet, {
+        type: 'line',
+        data: { labels: Array(10).fill(''), datasets: [
+            { label: 'Recv', data: Array(10).fill(0), borderColor: '#10b981' },
+            { label: 'Sent', data: Array(10).fill(0), borderColor: '#f59e0b' }
+        ] },
+        options: { animation: false }
+    });
+    charts.lastNet = { r: m.net_recv, s: m.net_sent, t: Date.now() };
+}
+
+function updateCharts(m) {
+    // Update CPU
+    charts.cpu.data.datasets[0].data.push(m.cpu_usage);
+    charts.cpu.data.datasets[0].data.shift();
+    charts.cpu.update();
+
+    // Update RAM
+    charts.ram.data.datasets[0].data = [m.mem_used, m.mem_total - m.mem_used];
+    charts.ram.update();
+
+    // Update Disk
+    charts.disk.data.datasets[0].data = [m.disk_used, m.disk_total - m.disk_used];
+    charts.disk.update();
+
+    // Update Network
+    const now = Date.now();
+    const dt = (now - charts.lastNet.t) / 1000;
+    const rx = (m.net_recv - charts.lastNet.r) / 1024 / dt;
+    const tx = (m.net_sent - charts.lastNet.s) / 1024 / dt;
+
+    charts.net.data.datasets[0].data.push(rx);
+    charts.net.data.datasets[0].data.shift();
+    charts.net.data.datasets[1].data.push(tx);
+    charts.net.data.datasets[1].data.shift();
+    charts.net.update();
+
+    charts.lastNet = { r: m.net_recv, s: m.net_sent, t: now };
 }
 
 function showAddImageForm(show = true) {

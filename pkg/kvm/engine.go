@@ -509,8 +509,8 @@ func (m *Manager) RemoveImage(name string) error {
 
 // Restart reboots a VM/Container gracefully.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use nohup and backgrounding to ensure the process persists
-	cmdStr := fmt.Sprintf("nohup /bin/sh -c 'curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s' > /dev/null 2>&1 &", name)
+	// Use setsid, nohup and full redirection to ensure the process persists in background
+	cmdStr := fmt.Sprintf("setsid nohup /bin/sh -c 'curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s' > /tmp/ssh.log 2>&1 &", name)
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -600,8 +600,22 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	cmdJSON, _ := json.Marshal(execCmd)
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
 	if err != nil {
-		if strings.Contains(err.Error(), "Guest agent is not responding") {
-			return "", fmt.Errorf("QEMU Guest Agent is not connected. Please ensure it is installed and running in the guest OS.")
+		if strings.Contains(err.Error(), "Guest agent is not responding") || strings.Contains(err.Error(), "Guest agent is not configured") {
+			// Fallback to Serial Console Injection
+			stream, sErr := m.conn.NewStream(0)
+			if sErr != nil {
+				return "", fmt.Errorf("agent unavailable and console fallback failed: %v", sErr)
+			}
+			defer stream.Free()
+			if sErr := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); sErr != nil {
+				return "", fmt.Errorf("agent unavailable and console open failed: %v", sErr)
+			}
+			// Inject command with extra newlines to ensure it's executed
+			fullCmd := strings.Join(cmdArgs, " ")
+			stream.Send([]byte("\n\n"))
+			time.Sleep(200 * time.Millisecond)
+			stream.Send([]byte(fullCmd + "\n"))
+			return "Command injected via serial console (no output capture available).", nil
 		}
 		return "", err
 	}

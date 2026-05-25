@@ -288,10 +288,19 @@ func (a *API) runCommand(c *gin.Context) {
 }
 
 func (a *API) getMonitorData(c *gin.Context) {
+	metrics, _ := kvm.GetHostMetrics()
+	instances, _ := a.manager.List()
+
+	active := 0
+	for _, inst := range instances {
+		if inst.Status == "running" {
+			active++
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"cpu":              7.4,
-		"ram":              4096,
-		"active_instances": 2,
+		"metrics":          metrics,
+		"active_instances": active,
 	})
 }
 
