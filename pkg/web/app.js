@@ -320,9 +320,15 @@ async function fetchHostMetrics(init = false) {
         const res = await fetch('/api/v1/monitor');
         const data = await res.json();
         const m = data.metrics;
+        if (!m) return;
 
-        document.getElementById('sys-active-inst').innerText = data.active_instances;
-        document.getElementById('sys-uptime').innerText = (m.uptime / 3600).toFixed(1) + " hours";
+        document.getElementById('sys-active-inst').innerText = data.active_instances || 0;
+        document.getElementById('sys-uptime').innerText = m.uptime ? (m.uptime / 3600).toFixed(1) + " hours" : "N/A";
+
+        if (!window.Chart) {
+            document.querySelectorAll('.view#system .card').forEach(c => c.innerHTML += '<p style="color:var(--danger);font-size:0.7rem;">Chart.js not loaded</p>');
+            return;
+        }
 
         if (init || !charts.cpu) initCharts(m);
         else updateCharts(m);

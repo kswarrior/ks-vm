@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -22,6 +23,7 @@ type HostMetrics struct {
 
 var (
 	prevIdle, prevTotal uint64
+	cpuMu               sync.Mutex
 )
 
 func GetHostMetrics() (HostMetrics, error) {
@@ -30,6 +32,7 @@ func GetHostMetrics() (HostMetrics, error) {
 	// CPU Usage
 	idle, total, err := getCPUTime()
 	if err == nil {
+		cpuMu.Lock()
 		if prevTotal > 0 {
 			diffIdle := idle - prevIdle
 			diffTotal := total - prevTotal
@@ -38,6 +41,7 @@ func GetHostMetrics() (HostMetrics, error) {
 			}
 		}
 		prevIdle, prevTotal = idle, total
+		cpuMu.Unlock()
 	}
 
 	// RAM
@@ -90,21 +94,26 @@ func getMemInfo() (total, used uint64, err error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "MemTotal:") {
-			fmt.Sscanf(line, "MemTotal: %d", &total)
-		} else if strings.HasPrefix(line, "MemAvailable:") {
-			fmt.Sscanf(line, "MemAvailable: %d", &available)
-		} else if strings.HasPrefix(line, "MemFree:") {
-			fmt.Sscanf(line, "MemFree: %d", &free)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		val, _ := strconv.ParseUint(fields[1], 10, 64)
+		if fields[0] == "MemTotal:" {
+			total = val
+		} else if fields[0] == "MemAvailable:" {
+			available = val
+		} else if fields[0] == "MemFree:" {
+			free = val
 		}
 	}
 	// KB to MB
-	total /= 1024
 	if available > 0 {
-		used = total - (available / 1024)
+		used = (total - available) / 1024
 	} else {
-		used = total - (free / 1024)
+		used = (total - free) / 1024
 	}
+	total /= 1024
 	return total, used, nil
 }
 
@@ -129,14 +138,17 @@ func getNetStats() (recv, sent uint64, err error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "eth0:") || strings.Contains(line, "enp") || strings.Contains(line, "wlan") {
-			fields := strings.Fields(line)
-			if len(fields) >= 10 {
-				r, _ := strconv.ParseUint(fields[1], 10, 64)
-				s, _ := strconv.ParseUint(fields[9], 10, 64)
-				recv += r
-				sent += s
-			}
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+		// Match common physical interface prefixes
+		iface := strings.TrimSuffix(fields[0], ":")
+		if strings.HasPrefix(iface, "eth") || strings.HasPrefix(iface, "en") || strings.HasPrefix(iface, "wl") {
+			r, _ := strconv.ParseUint(fields[1], 10, 64)
+			s, _ := strconv.ParseUint(fields[9], 10, 64)
+			recv += r
+			sent += s
 		}
 	}
 	return recv, sent, nil

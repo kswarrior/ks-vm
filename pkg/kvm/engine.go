@@ -239,14 +239,14 @@ func (m *Manager) isContainerRunning(name string) (bool, int) {
 		return false, 0
 	}
 	// On Unix, FindProcess always succeeds. Use signal 0 to check existence.
+	// We check both Signal(0) and /proc/[pid] to be absolutely sure.
 	err = process.Signal(syscall.Signal(0))
-	if err != nil {
-		// Verify if the process is still running via /proc
-		if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err != nil {
-			m.updateContainerStatus(name, "stopped")
-			os.Remove(pidPath)
-			return false, 0
-		}
+	statusData, procErr := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+
+	if (err != nil && procErr != nil) || strings.Contains(string(statusData), "State:\tZ (zombie)") {
+		m.updateContainerStatus(name, "stopped")
+		os.Remove(pidPath)
+		return false, 0
 	}
 	return true, pid
 }

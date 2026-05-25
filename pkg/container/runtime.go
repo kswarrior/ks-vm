@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Run starts a container using namespaces and pivot_root.
@@ -40,6 +41,9 @@ func Run(name, rootDir string, args []string) error {
 		if err := cmd.Start(); err != nil {
 			return err
 		}
+
+		// Give the child process a moment to initialize namespaces and pivot_root
+		time.Sleep(100 * time.Millisecond)
 
 		pidPath := filepath.Join(rootDir, "pid")
 		os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644)
@@ -121,6 +125,19 @@ func setupContainer(name, rootfs string) error {
 		}
 	}
 
+	// 3.1 Bind mount necessary devices if they exist on host
+	devices := []string{"null", "random", "urandom", "zero", "full", "tty"}
+	for _, dev := range devices {
+		hostDev := "/dev/" + dev
+		contDev := filepath.Join(rootfs, "dev", dev)
+		if _, err := os.Stat(hostDev); err == nil {
+			os.WriteFile(contDev, []byte(""), 0644) // Create placeholder
+			if err := syscall.Mount(hostDev, contDev, "", syscall.MS_BIND, ""); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to bind mount device %s: %v\n", dev, err)
+			}
+		}
+	}
+
 	// 4. pivot_root
 	if err := syscall.PivotRoot(rootfs, putold); err != nil {
 		return fmt.Errorf("pivot_root failed: %v", err)
@@ -157,20 +174,24 @@ func Stop(rootDir string) error {
 	if err == nil {
 		process.Signal(syscall.SIGTERM)
 		// Give it a moment to die
-		for i := 0; i < 10; i++ {
+		dead := false
+		for i := 0; i < 20; i++ {
 			if err := process.Signal(syscall.Signal(0)); err != nil {
+				dead = true
 				break
 			}
-			filepath.Walk(filepath.Join(rootDir, "rootfs"), func(path string, info os.FileInfo, err error) error {
-				// Try to unmount everything in rootfs to be clean
-				syscall.Unmount(path, syscall.MNT_DETACH)
-				return nil
-			})
-			os.Remove(pidPath)
-			return nil
+			time.Sleep(100 * time.Millisecond)
 		}
-		process.Kill()
+		if !dead {
+			process.Kill()
+		}
 	}
+
+	// Clean up mounts and PID file
+	filepath.Walk(filepath.Join(rootDir, "rootfs"), func(path string, info os.FileInfo, err error) error {
+		syscall.Unmount(path, syscall.MNT_DETACH)
+		return nil
+	})
 	os.Remove(pidPath)
 	return nil
 }
