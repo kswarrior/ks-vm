@@ -241,9 +241,12 @@ func (m *Manager) isContainerRunning(name string) (bool, int) {
 	// On Unix, FindProcess always succeeds. Use signal 0 to check existence.
 	err = process.Signal(syscall.Signal(0))
 	if err != nil {
-		// Update meta.json if we detected it died
-		m.updateContainerStatus(name, "stopped")
-		return false, 0
+		// Verify if the process is still running via /proc
+		if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err != nil {
+			m.updateContainerStatus(name, "stopped")
+			os.Remove(pidPath)
+			return false, 0
+		}
 	}
 	return true, pid
 }
@@ -573,15 +576,16 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	if err != nil {
 		destDir := filepath.Join(BaseDir, "containers", name)
 		if _, err := os.Stat(destDir); err == nil {
-			pidData, err := os.ReadFile(filepath.Join(destDir, "pid"))
-			if err != nil {
-				return "", fmt.Errorf("container not running")
+			running, pid := m.isContainerRunning(name)
+			if !running {
+				return "", fmt.Errorf("container %s is not running", name)
 			}
 
 			if len(cmdArgs) == 0 {
 				return "", fmt.Errorf("no command provided")
 			}
-			cmd := exec.Command("nsenter", "-t", strings.TrimSpace(string(pidData)), "-m", "-u", "-i", "-n", "-p", "--")
+			// Use nsenter to enter ALL namespaces and use the container's root
+			cmd := exec.Command("nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "-u", "-i", "-n", "-p", "-r", "/", "--")
 			cmd.Args = append(cmd.Args, cmdArgs...)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
@@ -785,8 +789,8 @@ func (m *Manager) Shell(name string) error {
 	if err != nil {
 		running, pid := m.isContainerRunning(name)
 		if running {
-			// All namespaces: m=mount, u=uts, i=ipc, n=net, p=pid
-			cmd := exec.Command("nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "-u", "-i", "-n", "-p", "/bin/sh")
+			// Use nsenter to enter ALL namespaces and use the container's root
+			cmd := exec.Command("nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "-u", "-i", "-n", "-p", "-r", "/", "/bin/sh")
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return cmd.Run()
 		}
