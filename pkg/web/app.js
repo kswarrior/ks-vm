@@ -318,23 +318,37 @@ let charts = {};
 async function fetchHostMetrics(init = false) {
     try {
         const res = await fetch('/api/v1/monitor');
+        if (!res.ok) throw new Error("API status " + res.status);
         const data = await res.json();
         const m = data.metrics;
-        if (!m) return;
+        if (!m) {
+            console.warn("No metrics data received");
+            return;
+        }
 
         document.getElementById('sys-active-inst').innerText = data.active_instances || 0;
         document.getElementById('sys-uptime').innerText = m.uptime ? (m.uptime / 3600).toFixed(1) + " hours" : "N/A";
 
         if (!window.Chart) {
-            document.querySelectorAll('.view#system .card').forEach(c => c.innerHTML += '<p style="color:var(--danger);font-size:0.7rem;">Chart.js not loaded</p>');
+            if (init) {
+                document.querySelectorAll('.view#system .card').forEach(c => {
+                    if (!c.querySelector('.error-msg')) {
+                        c.innerHTML += '<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Chart.js not loaded. Check connection.</p>';
+                    }
+                });
+            }
             return;
         }
 
-        if (init || !charts.cpu) initCharts(m);
+        if (init || !charts.cpu || !document.getElementById('cpuChart')) initCharts(m);
         else updateCharts(m);
 
     } catch (e) {
         console.error("Host metrics failed:", e);
+        if (init) {
+            document.getElementById('sys-active-inst').innerText = "ERR";
+            document.getElementById('sys-uptime').innerText = "ERR";
+        }
     }
 }
 

@@ -83,7 +83,9 @@ func getManifest(repo, tag, token string) (*manifestV2, error) {
 	url := fmt.Sprintf("https://registry-1.docker.io/v2/%s/manifests/%s", repo, tag)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
+	// Support both single manifests and manifest lists (multi-arch)
+	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.v2+json")
+	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.list.v2+json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -95,8 +97,30 @@ func getManifest(repo, tag, token string) (*manifestV2, error) {
 		return nil, fmt.Errorf("failed to get manifest: %s", resp.Status)
 	}
 
+	body, _ := io.ReadAll(resp.Body)
+	contentType := resp.Header.Get("Content-Type")
+
+	if contentType == "application/vnd.docker.distribution.manifest.list.v2+json" {
+		var list struct {
+			Manifests []struct {
+				Digest   string `json:"digest"`
+				Platform struct {
+					Architecture string `json:"architecture"`
+					OS           string `json:"os"`
+				} `json:"platform"`
+			} `json:"manifests"`
+		}
+		json.Unmarshal(body, &list)
+		for _, m := range list.Manifests {
+			if m.Platform.Architecture == "amd64" && m.Platform.OS == "linux" {
+				return getManifest(repo, m.Digest, token)
+			}
+		}
+		return nil, fmt.Errorf("no linux/amd64 manifest found in list")
+	}
+
 	var m manifestV2
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, err
 	}
 	return &m, nil
@@ -164,8 +188,14 @@ func downloadAndExtractLayer(repo, digest, token, dest string) error {
 			}
 			f.Close()
 		case tar.TypeSymlink:
+			os.MkdirAll(filepath.Dir(target), 0755)
 			os.Remove(target)
 			os.Symlink(header.Linkname, target)
+		case tar.TypeLink:
+			os.MkdirAll(filepath.Dir(target), 0755)
+			os.Remove(target)
+			oldTarget := filepath.Join(dest, header.Linkname)
+			os.Link(oldTarget, target)
 		}
 	}
 	return nil

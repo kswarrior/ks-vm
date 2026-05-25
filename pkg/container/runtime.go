@@ -59,6 +59,17 @@ func Run(name, rootDir string, args []string) error {
 		return err
 	}
 
+	// 6. Ensure /bin/sh compatibility (merged-usr support)
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		if _, err := os.Stat("/usr/bin/sh"); err == nil {
+			os.Symlink("/usr/bin/sh", "/bin/sh")
+		} else if _, err := os.Stat("/usr/bin/dash"); err == nil {
+			os.Symlink("/usr/bin/dash", "/bin/sh")
+		} else if _, err := os.Stat("/usr/bin/bash"); err == nil {
+			os.Symlink("/usr/bin/bash", "/bin/sh")
+		}
+	}
+
 	// Set a basic PATH
 	env := os.Environ()
 	hasPath := false
