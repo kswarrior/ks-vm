@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const LXDSocket = "/var/snap/lxd/common/lxd/unix.socket"
@@ -33,13 +34,79 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 	if body != nil {
 		json.NewEncoder(&bodyReader).Encode(body)
 	}
-	req, _ := http.NewRequest(method, "http://lxd"+path, &bodyReader)
+	req, err := http.NewRequest(method, "http://lxd"+path, &bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
 	return c.client.Do(req)
 }
 
+func (c *LXDClient) waitForOperation(opPath string) error {
+	for i := 0; i < 30; i++ {
+		resp, err := c.do("GET", opPath, nil)
+		if err != nil {
+			return err
+		}
+		var data struct {
+			Metadata struct {
+				Status string `json:"status"`
+				Err    string `json:"err"`
+			} `json:"metadata"`
+		}
+		json.NewDecoder(resp.Body).Decode(&data)
+		resp.Body.Close()
+
+		switch data.Metadata.Status {
+		case "Success":
+			return nil
+		case "Failure":
+			return fmt.Errorf("LXD operation failed: %s", data.Metadata.Err)
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return fmt.Errorf("timeout waiting for LXD operation")
+}
+
+func (c *LXDClient) ensureImage(image string) error {
+	// Check if image exists
+	resp, err := c.do("GET", "/1.0/images/aliases/"+image, nil)
+	if err == nil && resp.StatusCode == http.StatusOK {
+		resp.Body.Close()
+		return nil
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+
+	// Pull from Ubuntu simplestreams if not found
+	fmt.Printf("Image %s not found, pulling from Ubuntu streams...\n", image)
+	body := map[string]interface{}{
+		"source": map[string]string{
+			"type":   "simplestreams",
+			"url":    "https://images.linuxcontainers.org",
+			"name":   image,
+		},
+		"aliases": []map[string]string{{"name": image}},
+	}
+	resp, err = c.do("POST", "/1.0/images", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var opData struct {
+		Operation string `json:"operation"`
+	}
+	json.NewDecoder(resp.Body).Decode(&opData)
+	return c.waitForOperation(opData.Operation)
+}
+
 func (c *LXDClient) CreateContainer(name string, cpu uint, ramMB uint, diskGB uint, image string) error {
-	// 1. Check if image exists, if not pull it (simplified for LXD)
-	// Body for LXD container creation
+	if err := c.ensureImage(image); err != nil {
+		return fmt.Errorf("failed to ensure image: %v", err)
+	}
+
 	config := map[string]interface{}{
 		"name": name,
 		"source": map[string]string{
@@ -73,7 +140,12 @@ func (c *LXDClient) CreateContainer(name string, cpu uint, ramMB uint, diskGB ui
 		json.NewDecoder(resp.Body).Decode(&errData)
 		return fmt.Errorf("LXD error (%d): %s", resp.StatusCode, errData.Error)
 	}
-	return nil
+
+	var opData struct {
+		Operation string `json:"operation"`
+	}
+	json.NewDecoder(resp.Body).Decode(&opData)
+	return c.waitForOperation(opData.Operation)
 }
 
 func (c *LXDClient) ControlContainer(name, action string) error {
@@ -91,7 +163,12 @@ func (c *LXDClient) ControlContainer(name, action string) error {
 			return err
 		}
 		defer resp.Body.Close()
-		return nil
+
+		var opData struct {
+			Operation string `json:"operation"`
+		}
+		json.NewDecoder(resp.Body).Decode(&opData)
+		return c.waitForOperation(opData.Operation)
 	default:
 		return fmt.Errorf("invalid action: %s", action)
 	}
@@ -102,7 +179,12 @@ func (c *LXDClient) ControlContainer(name, action string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	return nil
+
+	var opData struct {
+		Operation string `json:"operation"`
+	}
+	json.NewDecoder(resp.Body).Decode(&opData)
+	return c.waitForOperation(opData.Operation)
 }
 
 func (c *LXDClient) EditContainerResources(name string, cpu uint, ramMB uint) error {

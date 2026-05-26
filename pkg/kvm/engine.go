@@ -823,6 +823,17 @@ func (m *Manager) Version() (*VersionInfo, error) {
 
 // Info returns detailed information about an instance.
 func (m *Manager) Info(name string) (*VMInfo, error) {
+	// Try LXD first as it's lighter
+	lxdMetrics, err := m.lxd.GetContainerMetrics(name)
+	if err == nil {
+		return &VMInfo{
+			Name: name, Status: lxdMetrics.Status, Type: "container", IPs: []string{"internal"},
+			CPUs: 1, CPUUsage: 0.0, MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
+			DiskUsage: int64(lxdMetrics.DiskUsed), DiskGB: uint(lxdMetrics.DiskTotal),
+			Image: "lxd-image",
+		}, nil
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		info, err := domain.GetInfo()
@@ -925,17 +936,6 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
 			User:  user, Password: pass,
-		}, nil
-	}
-
-	// Try LXD
-	lxdMetrics, err := m.lxd.GetContainerMetrics(name)
-	if err == nil {
-		return &VMInfo{
-			Name: name, Status: lxdMetrics.Status, Type: "container", IPs: []string{"internal"},
-			CPUs: 1, CPUUsage: 0.0, MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
-			DiskUsage: int64(lxdMetrics.DiskUsed), DiskGB: uint(lxdMetrics.DiskTotal),
-			Image: "lxd-image",
 		}, nil
 	}
 
