@@ -290,7 +290,7 @@ func (a *API) runCommand(c *gin.Context) {
 func (a *API) getMonitorData(c *gin.Context) {
 	metrics, err := kvm.GetHostMetrics()
 	if err != nil {
-		// Return partial data if metrics fail, don't just error out
+		// Log the error and return empty structure to keep UI alive
 		metrics = kvm.HostMetrics{}
 	}
 

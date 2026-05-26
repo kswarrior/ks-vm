@@ -262,12 +262,25 @@ async function action(type, name) {
 }
 
 async function getSSH(name) {
-    const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-        alert("SSH Setup Token: " + data.token);
-    } else {
-        alert("SSH Error: " + data.error);
+    const output = document.getElementById('exec-output');
+    document.getElementById('exec-title').innerText = "SSH Setup: " + name;
+    output.innerText = "Initializing persistent SSH tunnel inside " + name + "...\n";
+    document.getElementById('exec-command').value = "";
+    showTab('exec');
+
+    try {
+        const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            output.innerText += "\n--- SUCCESS ---\n";
+            output.innerText += "SSH Token: " + data.token + "\n";
+            output.innerText += "The tunnel is now running in the background of your VPS.\n";
+            output.innerText += "You can use this token at https://ks-ssh.pages.dev\n";
+        } else {
+            output.innerText += "\n--- ERROR ---\n" + data.error + "\n";
+        }
+    } catch (e) {
+        output.innerText += "\n--- FETCH FAILED ---\n" + e.message + "\n";
     }
 }
 
@@ -330,7 +343,6 @@ async function fetchHostMetrics(init = false) {
 
         if (!m) {
             console.warn("No metrics data received");
-            if (init) document.querySelectorAll('.view#system .card').forEach(c => c.innerHTML += '<p style="color:var(--warning);font-size:0.7rem;">Metrics partially unavailable</p>');
             return;
         }
 
@@ -338,7 +350,7 @@ async function fetchHostMetrics(init = false) {
             if (init) {
                 document.querySelectorAll('.view#system .card').forEach(c => {
                     if (!c.querySelector('.error-msg')) {
-                        c.innerHTML += '<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Chart.js library missing</p>';
+                        c.innerHTML += '<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Monitoring component missing.</p>';
                     }
                 });
             }
@@ -352,13 +364,9 @@ async function fetchHostMetrics(init = false) {
         console.error("Host metrics failed:", e);
         if (init) {
             const activeInstEl = document.getElementById('sys-active-inst');
-            if (activeInstEl) activeInstEl.innerText = "ERROR";
+            if (activeInstEl) activeInstEl.innerText = "N/A";
             const uptimeEl = document.getElementById('sys-uptime');
-            if (uptimeEl) uptimeEl.innerText = "Service Unavailable";
-
-            document.querySelectorAll('.view#system .card').forEach(c => {
-               if (!c.querySelector('.error-msg')) c.innerHTML += `<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Connection failed: ${e.message}</p>`;
-            });
+            if (uptimeEl) uptimeEl.innerText = "Unavailable";
         }
     }
 }

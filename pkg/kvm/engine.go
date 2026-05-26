@@ -144,6 +144,14 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 			return err
 		}
 		configDrivePath = iso
+
+		// Save credentials to meta.json
+		meta := map[string]string{
+			"user":     opts.User,
+			"password": opts.Password,
+		}
+		metaData, _ := json.Marshal(meta)
+		os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 	}
 
 	// 6. Generate XML
@@ -341,6 +349,8 @@ type VMInfo struct {
 	DiskGB      uint
 	DiskUsage   int64
 	Image       string
+	User        string `json:"user,omitempty"`
+	Password    string `json:"password,omitempty"`
 }
 
 // Delete stops, destroys, and removes the VM/Container and its storage.
@@ -391,9 +401,10 @@ func (m *Manager) RemoveImage(name string) error {
 
 // Restart reboots a VM/Container gracefully.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use a double-nohup wrapper to ensure the process is completely decoupled from the session
+	// Use a more robust backgrounding strategy to ensure persistence inside the guest
 	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
-	cmdStr := fmt.Sprintf("nohup sh -c 'nohup %s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
+	// Using setsid and disown inside the shell to fully decouple the process
+	cmdStr := fmt.Sprintf("sh -c 'setsid nohup %s > /tmp/ssh.log 2>&1 & sleep 1; exit'", script)
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -485,21 +496,37 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			if sErr := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); sErr != nil {
 				return "", fmt.Errorf("agent unavailable and console open failed: %v", sErr)
 			}
-			// Inject command with extra newlines to ensure it's executed
+			// Interactive login and command injection
+			info, _ := m.Info(name)
+			user := info.User
+			pass := info.Password
+			if user == "" { user = "ubuntu" }
+
 			fullCmd := strings.Join(cmdArgs, " ")
 			stream.Send([]byte("\n\n"))
-			time.Sleep(200 * time.Millisecond)
-			stream.Send([]byte(fullCmd + "\n"))
-
-			// Best effort capture of what appears next
-			buf := make([]byte, 4096)
 			time.Sleep(1 * time.Second)
+
+			// Read buffer to detect login prompt
+			buf := make([]byte, 4096)
 			n, _ := stream.Recv(buf)
+			output := string(buf[:n])
+
+			if strings.Contains(output, "login:") || strings.Contains(output, "username:") {
+				stream.Send([]byte(user + "\n"))
+				time.Sleep(500 * time.Millisecond)
+				stream.Send([]byte(pass + "\n"))
+				time.Sleep(1 * time.Second)
+			}
+
+			stream.Send([]byte(fullCmd + "\n"))
+			time.Sleep(1 * time.Second)
+
+			n, _ = stream.Recv(buf)
 			res := string(buf[:n])
 			if res == "" {
 				res = "(no output captured from console)"
 			}
-			return "Command injected via serial console. Output preview:\n" + res, nil
+			return "Command injected via serial console (interactive login handled). Output preview:\n" + res, nil
 		}
 		return "", err
 	}
@@ -866,6 +893,16 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			diskGB = uint(blockInfo.Capacity / 1024 / 1024 / 1024)
 		}
 
+		// Load Credentials
+		user, pass := "", ""
+		if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+			var meta map[string]string
+			if err := json.Unmarshal(data, &meta); err == nil {
+				user = meta["user"]
+				pass = meta["password"]
+			}
+		}
+
 		// CPU Calculation
 		cpuUsage := 0.0
 		if state == libvirt.DOMAIN_RUNNING {
@@ -887,6 +924,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			MemoryMB:    uint(info.MaxMem / 1024),
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
+			User:  user, Password: pass,
 		}, nil
 	}
 
