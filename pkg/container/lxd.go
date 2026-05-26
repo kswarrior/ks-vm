@@ -39,7 +39,17 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.client.Do(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			return nil, fmt.Errorf("LXD socket not found at %s. Please ensure LXD is installed.", LXDSocket)
+		}
+		if strings.Contains(err.Error(), "connection refused") {
+			return nil, fmt.Errorf("LXD service is not running or socket is inaccessible.")
+		}
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (c *LXDClient) waitForOperation(opPath string) error {

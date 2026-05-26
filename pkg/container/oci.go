@@ -92,13 +92,14 @@ func getManifest(repo, tag, token string) (*manifestV2, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		return nil, fmt.Errorf("failed to get manifest: %s", resp.Status)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
 	contentType := resp.Header.Get("Content-Type")
 
 	if contentType == "application/vnd.docker.distribution.manifest.list.v2+json" {
