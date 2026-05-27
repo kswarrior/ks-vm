@@ -86,7 +86,9 @@ func Run(name, rootDir string, args []string) error {
 		// Diagnostic helper: list /bin and /usr/bin if shell not found
 		fmt.Fprintf(os.Stderr, "Diagnostic: listing /bin:\n")
 		if entries, dErr := os.ReadDir("/bin"); dErr == nil {
-			for _, e := range entries { fmt.Fprintf(os.Stderr, "  %s\n", e.Name()) }
+			for _, e := range entries {
+				fmt.Fprintf(os.Stderr, "  %s\n", e.Name())
+			}
 		}
 		return fmt.Errorf("command %s not found: %v", args[0], err)
 	}
@@ -126,9 +128,9 @@ func setupContainer(name, rootfs string) error {
 	}{
 		{"proc", filepath.Join(rootfs, "proc"), "proc", 0, ""},
 		{"sysfs", filepath.Join(rootfs, "sys"), "sysfs", 0, ""},
-		{"tmpfs", filepath.Join(rootfs, "dev"), "tmpfs", syscall.MS_NOSUID|syscall.MS_STRICTATIME, "mode=755"},
-		{"devpts", filepath.Join(rootfs, "dev/pts"), "devpts", syscall.MS_NOSUID|syscall.MS_NOEXEC, "newinstance,ptmxmode=0666,mode=0620,gid=5"},
-		{"tmpfs", filepath.Join(rootfs, "dev/shm"), "tmpfs", syscall.MS_NOSUID|syscall.MS_NODEV, "mode=1777"},
+		{"tmpfs", filepath.Join(rootfs, "dev"), "tmpfs", syscall.MS_NOSUID | syscall.MS_STRICTATIME, "mode=755"},
+		{"devpts", filepath.Join(rootfs, "dev/pts"), "devpts", syscall.MS_NOSUID | syscall.MS_NOEXEC, "newinstance,ptmxmode=0666,mode=0620,gid=5"},
+		{"tmpfs", filepath.Join(rootfs, "dev/shm"), "tmpfs", syscall.MS_NOSUID | syscall.MS_NODEV, "mode=1777"},
 	}
 
 	for _, m := range mounts {

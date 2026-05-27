@@ -93,9 +93,9 @@ func (c *LXDClient) ensureImage(image string) error {
 	fmt.Printf("Image %s not found, pulling from Ubuntu streams...\n", image)
 	body := map[string]interface{}{
 		"source": map[string]string{
-			"type":   "simplestreams",
-			"url":    "https://images.linuxcontainers.org",
-			"name":   image,
+			"type": "simplestreams",
+			"url":  "https://images.linuxcontainers.org",
+			"name": image,
 		},
 		"aliases": []map[string]string{{"name": image}},
 	}

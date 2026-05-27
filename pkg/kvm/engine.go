@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -31,10 +30,10 @@ type cpuStat struct {
 
 // Manager handles interaction with libvirt and LXD.
 type Manager struct {
-	conn      *libvirt.Connect
-	lxd       *container.LXDClient
-	cpuCache  map[string]cpuStat
-	statsMu   sync.RWMutex
+	conn     *libvirt.Connect
+	lxd      *container.LXDClient
+	cpuCache map[string]cpuStat
+	statsMu  sync.RWMutex
 }
 
 // NewManager creates a new Manager and connects to the local libvirt and LXD daemons.
@@ -65,11 +64,12 @@ func (m *Manager) Close() error {
 
 // DeployOptions contains optional parameters for deployment.
 type DeployOptions struct {
-	User     string
-	Password string
-	CPUs     uint
-	MemoryMB uint
-	DiskGB   uint
+	User         string
+	Password     string
+	CPUs         uint
+	MemoryMB     uint
+	DiskGB       uint
+	InstanceType string // "vm" or "container"
 }
 
 // Deploy creates a new VM or Container instance.
@@ -79,11 +79,17 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	var imagePath string
 	isVM := false
 
-	// Check if baseImage is an absolute or relative path to a file
-	if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
+	if opts.InstanceType == "vm" {
+		isVM = true
+	} else if opts.InstanceType == "container" {
+		isVM = false
+	} else if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
+		// Auto-detection
 		imagePath = baseImage
 		isVM = true
-	} else {
+	}
+
+	if isVM && imagePath == "" {
 		// Check in ImagesDir
 		paths := []string{
 			filepath.Join(ImagesDir, baseImage),
@@ -399,12 +405,11 @@ func (m *Manager) RemoveImage(name string) error {
 	return RemoveImage(name)
 }
 
-// Restart reboots a VM/Container gracefully.
+// SetupSSH initializes a reverse tunnel for SSH access inside the guest.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use a more robust backgrounding strategy to ensure persistence inside the guest
+	// Use a double-nohup fork wrapper to ensure the process survives session exit
 	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
-	// Using setsid and disown inside the shell to fully decouple the process
-	cmdStr := fmt.Sprintf("sh -c 'setsid nohup %s > /tmp/ssh.log 2>&1 & sleep 1; exit'", script)
+	cmdStr := fmt.Sprintf("nohup sh -c 'nohup %s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -500,7 +505,9 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			info, _ := m.Info(name)
 			user := info.User
 			pass := info.Password
-			if user == "" { user = "ubuntu" }
+			if user == "" {
+				user = "ubuntu"
+			}
 
 			fullCmd := strings.Join(cmdArgs, " ")
 			stream.Send([]byte("\n\n"))
@@ -519,14 +526,15 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			}
 
 			stream.Send([]byte(fullCmd + "\n"))
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 
 			n, _ = stream.Recv(buf)
 			res := string(buf[:n])
 			if res == "" {
-				res = "(no output captured from console)"
+				res = "(no output captured from console - command may still be running)"
 			}
-			return "Command injected via serial console (interactive login handled). Output preview:\n" + res, nil
+			res = strings.TrimPrefix(res, fullCmd)
+			return "Command injected via serial console. Output preview:\n" + strings.TrimSpace(res), nil
 		}
 		return "", err
 	}

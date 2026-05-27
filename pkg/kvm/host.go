@@ -11,14 +11,14 @@ import (
 )
 
 type HostMetrics struct {
-	CPUUsage    float64 `json:"cpu_usage"`
-	MemTotal    uint64  `json:"mem_total"`
-	MemUsed     uint64  `json:"mem_used"`
-	DiskTotal   uint64  `json:"disk_total"`
-	DiskUsed    uint64  `json:"disk_used"`
-	NetRecv     uint64  `json:"net_recv"`
-	NetSent     uint64  `json:"net_sent"`
-	Uptime      float64 `json:"uptime"`
+	CPUUsage  float64 `json:"cpu_usage"`
+	MemTotal  uint64  `json:"mem_total"`
+	MemUsed   uint64  `json:"mem_used"`
+	DiskTotal uint64  `json:"disk_total"`
+	DiskUsed  uint64  `json:"disk_used"`
+	NetRecv   uint64  `json:"net_recv"`
+	NetSent   uint64  `json:"net_sent"`
+	Uptime    float64 `json:"uptime"`
 }
 
 var (

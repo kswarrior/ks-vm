@@ -207,22 +207,36 @@ function selectImage(name) {
 }
 
 async function deployInstance() {
+    const btn = document.querySelector('#deploy .btn-primary');
+    const oldText = btn.innerText;
+    btn.innerText = "DEPLOYING...";
+    btn.disabled = true;
+
     const data = {
         name: document.getElementById('deploy-name').value,
         image: document.getElementById('deploy-image').value || document.getElementById('image-search').value,
+        type: document.getElementById('deploy-type').value,
         cpus: parseInt(document.getElementById('deploy-cpu').value),
         memory_mb: parseInt(document.getElementById('deploy-ram').value),
         disk_gb: parseInt(document.getElementById('deploy-disk').value),
         user: document.getElementById('deploy-user').value,
         password: document.getElementById('deploy-pass').value
     };
-    const res = await fetch('/api/v1/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    if (res.ok) showTab('instances');
-    else alert("Error: " + (await res.json()).error);
+
+    try {
+        const res = await fetch('/api/v1/deploy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (res.ok) showTab('instances');
+        else alert("Error: " + (await res.json()).error);
+    } catch (e) {
+        alert("Deployment failed: " + e.message);
+    } finally {
+        btn.innerText = oldText;
+        btn.disabled = false;
+    }
 }
 
 async function openEdit(name) {
@@ -343,6 +357,13 @@ async function fetchHostMetrics(init = false) {
 
         if (!m) {
             console.warn("No metrics data received");
+            if (init) {
+                document.querySelectorAll('.view#system .card').forEach(c => {
+                    if (!c.querySelector('.error-msg')) {
+                        c.innerHTML += '<p class="error-msg" style="color:var(--warning);font-size:0.7rem;margin-top:10px;">Metrics temporarily unavailable.</p>';
+                    }
+                });
+            }
             return;
         }
 
