@@ -211,6 +211,12 @@ var listCmd = &cobra.Command{
 	},
 }
 
+var addImgType string
+
+func init() {
+	addCmd.Flags().StringVar(&addImgType, "type", "vm", "Image type (vm or container)")
+}
+
 var addCmd = &cobra.Command{
 	Use:   "add <name> <url_or_path>",
 	Short: "Register a base cloud image",
@@ -223,7 +229,7 @@ var addCmd = &cobra.Command{
 		}
 		defer manager.Close()
 
-		if err := manager.AddImage(args[0], args[1]); err != nil {
+		if err := manager.AddImage(args[0], args[1], addImgType); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
 		}

@@ -122,20 +122,20 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	if !isVM {
 		// Final check for VM image if auto-detection failed but it's not obviously a container
 		if opts.InstanceType == "" && !strings.HasPrefix(baseImage, "docker://") && !strings.Contains(baseImage, ":") {
-			// If it's a simple name and no type specified, and no .docker marker, it might be a missing VM image
-			markerPath := filepath.Join(ImagesDir, baseImage+".docker")
+			// If it's a simple name and no type specified, and no .lxd marker, it might be a missing VM image
+			markerPath := filepath.Join(ImagesDir, baseImage+".lxd")
 			if _, err := os.Stat(markerPath); os.IsNotExist(err) {
-				return fmt.Errorf("base image %s not found. If this is a VM image, please add it first. If it's a container, specify 'container' type or use docker:// prefix.", baseImage)
+				return fmt.Errorf("base image %s not found. If this is a VM image, please add it first. If it's a container, specify 'container' type.", baseImage)
 			}
 		}
 
-		// Check for .docker marker
-		markerPath := filepath.Join(ImagesDir, baseImage+".docker")
+		// Check for .lxd marker
+		markerPath := filepath.Join(ImagesDir, baseImage+".lxd")
 		if data, err := os.ReadFile(markerPath); err == nil {
 			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
 		}
 
-		if strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/") || opts.InstanceType == "container" {
+		if strings.HasPrefix(baseImage, "docker://") || strings.Contains(baseImage, ":") || opts.InstanceType == "container" {
 			return m.DeployContainer(name, baseImage, opts)
 		}
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
@@ -416,10 +416,10 @@ func (m *Manager) Delete(name string) error {
 }
 
 // AddImage registers a base cloud image.
-func (m *Manager) AddImage(name, source string) error {
-	if strings.HasPrefix(source, "docker://") {
+func (m *Manager) AddImage(name, source string, imgType string) error {
+	if imgType == "container" {
 		os.MkdirAll(ImagesDir, 0755)
-		return os.WriteFile(filepath.Join(ImagesDir, name+".docker"), []byte(source), 0644)
+		return os.WriteFile(filepath.Join(ImagesDir, name+".lxd"), []byte(source), 0644)
 	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		_, err := DownloadImage(name, source)

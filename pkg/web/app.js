@@ -85,6 +85,7 @@ async function fetchInstances(animate = false) {
             const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
+            const typeLabel = vm.Type === 'container' ? 'LXD' : 'VM';
             const memTotalVal = vm.MemoryMB || 1024;
             const memPerc = Math.min(100, ((vm.MemoryUsage || 0) / memTotalVal * 100)).toFixed(1);
             const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
@@ -130,7 +131,7 @@ async function fetchInstances(animate = false) {
                     </div>
                     <div class="info-group">
                         <div class="info-label">Type</div>
-                        <div class="info-value" style="text-transform:uppercase;">${vm.Type}</div>
+                        <div class="info-value" style="text-transform:uppercase;">${typeLabel}</div>
                     </div>
                 </div>
 

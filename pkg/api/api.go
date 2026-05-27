@@ -382,7 +382,7 @@ func (a *API) addImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := a.manager.AddImage(req.Name, req.URL); err != nil {
+	if err := a.manager.AddImage(req.Name, req.URL, req.Type); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -399,12 +399,27 @@ func (a *API) renameImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	oldPath := filepath.Join(kvm.ImagesDir, req.OldName)
-	newPath := filepath.Join(kvm.ImagesDir, req.NewName)
-	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
-		oldPath += ".qcow2"
-		newPath += ".qcow2"
+
+	// Try common extensions
+	exts := []string{"", ".qcow2", ".lxd"}
+	found := false
+	var oldPath, newPath string
+
+	for _, ext := range exts {
+		p := filepath.Join(kvm.ImagesDir, req.OldName+ext)
+		if _, err := os.Stat(p); err == nil {
+			oldPath = p
+			newPath = filepath.Join(kvm.ImagesDir, req.NewName+ext)
+			found = true
+			break
+		}
 	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Image file not found"})
+		return
+	}
+
 	if err := os.Rename(oldPath, newPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

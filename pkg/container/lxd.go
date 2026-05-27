@@ -98,21 +98,29 @@ func (c *LXDClient) waitForOperation(opPath string) error {
 func (c *LXDClient) ensureImage(image string) error {
 	// Check if image exists
 	resp, err := c.do("GET", "/1.0/images/aliases/"+image, nil)
-	if err == nil && resp.StatusCode == http.StatusOK {
+	if err == nil {
 		resp.Body.Close()
 		return nil
 	}
-	if resp != nil {
-		resp.Body.Close()
+
+	// Handle standard Ubuntu aliases like ubuntu:24.04
+	sourceURL := "https://images.linuxcontainers.org"
+	imgName := image
+	if strings.Contains(image, ":") {
+		parts := strings.Split(image, ":")
+		if parts[0] == "ubuntu" {
+			sourceURL = "https://cloud-images.ubuntu.com/releases"
+			imgName = parts[1]
+		}
 	}
 
-	// Pull from Ubuntu simplestreams if not found
-	fmt.Printf("Image %s not found, pulling from Ubuntu streams...\n", image)
+	// Pull if not found
+	fmt.Printf("Image %s not found, pulling from %s...\n", image, sourceURL)
 	body := map[string]interface{}{
 		"source": map[string]string{
 			"type": "simplestreams",
-			"url":  "https://images.linuxcontainers.org",
-			"name": image,
+			"url":  sourceURL,
+			"name": imgName,
 		},
 		"aliases": []map[string]string{{"name": image}},
 	}
