@@ -249,7 +249,15 @@
 
                 <div class="card" style="margin-top:24px;">
                     <h3 style="margin-bottom:15px;">Host Information</h3>
-                    <div id="host-info-grid" class="metrics-grid">
+                    <div id="host-info-grid" class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                        <div class="info-group">
+                            <div class="info-label">Kernel Version</div>
+                            <div id="sys-kernel" class="info-value">Loading...</div>
+                        </div>
+                        <div class="info-group">
+                            <div class="info-label">Platform</div>
+                            <div id="sys-os" class="info-value">KS. Host</div>
+                        </div>
                         <div class="info-group">
                             <div class="info-label">Active Instances</div>
                             <div id="sys-active-inst" class="info-value">Loading...</div>

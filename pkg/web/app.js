@@ -355,6 +355,9 @@ async function fetchHostMetrics(init = false) {
         const uptimeEl = document.getElementById('sys-uptime');
         if (uptimeEl) uptimeEl.innerText = (m && m.uptime) ? (m.uptime / 3600).toFixed(1) + " hours" : "N/A";
 
+        const kernelEl = document.getElementById('sys-kernel');
+        if (kernelEl && m && m.kernel) kernelEl.innerText = m.kernel;
+
         if (!m) {
             console.warn("No metrics data received");
             if (init) {

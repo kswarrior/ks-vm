@@ -11,10 +11,14 @@ import (
 	"time"
 )
 
-const LXDSocket = "/var/snap/lxd/common/lxd/unix.socket"
+var LXDSockets = []string{
+	"/var/snap/lxd/common/lxd/unix.socket",
+	"/var/lib/lxd/unix.socket",
+}
 
 type LXDClient struct {
-	client *http.Client
+	client       *http.Client
+	activeSocket string
 }
 
 func NewLXDClient() *LXDClient {
@@ -22,7 +26,14 @@ func NewLXDClient() *LXDClient {
 		client: &http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", LXDSocket)
+					// Fallback dialer will find the first available socket
+					for _, s := range LXDSockets {
+						conn, err := net.Dial("unix", s)
+						if err == nil {
+							return conn, nil
+						}
+					}
+					return nil, fmt.Errorf("LXD socket not found in any standard location")
 				},
 			},
 		},
@@ -41,11 +52,11 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
-		if strings.Contains(err.Error(), "no such file or directory") {
-			return nil, fmt.Errorf("LXD socket not found at %s. Please ensure LXD is installed.", LXDSocket)
+		if strings.Contains(err.Error(), "socket not found") || strings.Contains(err.Error(), "no such file or directory") {
+			return nil, fmt.Errorf("LXD socket not found. Please ensure LXD is installed and initialized (run 'lxd init').")
 		}
-		if strings.Contains(err.Error(), "connection refused") {
-			return nil, fmt.Errorf("LXD service is not running or socket is inaccessible.")
+		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "permission denied") {
+			return nil, fmt.Errorf("LXD service is inaccessible (check permissions or if service is running).")
 		}
 		return nil, err
 	}

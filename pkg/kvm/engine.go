@@ -105,13 +105,22 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	if !isVM {
+		// Final check for VM image if auto-detection failed but it's not obviously a container
+		if opts.InstanceType == "" && !strings.HasPrefix(baseImage, "docker://") && !strings.Contains(baseImage, ":") {
+			// If it's a simple name and no type specified, and no .docker marker, it might be a missing VM image
+			markerPath := filepath.Join(ImagesDir, baseImage+".docker")
+			if _, err := os.Stat(markerPath); os.IsNotExist(err) {
+				return fmt.Errorf("base image %s not found. If this is a VM image, please add it first. If it's a container, specify 'container' type or use docker:// prefix.", baseImage)
+			}
+		}
+
 		// Check for .docker marker
 		markerPath := filepath.Join(ImagesDir, baseImage+".docker")
 		if data, err := os.ReadFile(markerPath); err == nil {
 			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
 		}
 
-		if strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/") {
+		if strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/") || opts.InstanceType == "container" {
 			return m.DeployContainer(name, baseImage, opts)
 		}
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)

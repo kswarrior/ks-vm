@@ -19,6 +19,7 @@ type HostMetrics struct {
 	NetRecv   uint64  `json:"net_recv"`
 	NetSent   uint64  `json:"net_sent"`
 	Uptime    float64 `json:"uptime"`
+	Kernel    string  `json:"kernel"`
 }
 
 var (
@@ -55,6 +56,14 @@ func GetHostMetrics() (HostMetrics, error) {
 
 	// Uptime
 	metrics.Uptime, _ = getUptime()
+
+	// Kernel
+	if data, err := os.ReadFile("/proc/version"); err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) > 2 {
+			metrics.Kernel = fields[2]
+		}
+	}
 
 	return metrics, nil
 }
