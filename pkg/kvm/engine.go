@@ -84,9 +84,24 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	} else if opts.InstanceType == "container" {
 		isVM = false
 	} else if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
-		// Auto-detection
+		// Auto-detection from absolute path
 		imagePath = baseImage
 		isVM = true
+	}
+
+	if !isVM && opts.InstanceType == "" {
+		// Try to find image in pool if no type specified
+		paths := []string{
+			filepath.Join(ImagesDir, baseImage),
+			filepath.Join(ImagesDir, baseImage+".qcow2"),
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				imagePath = p
+				isVM = true
+				break
+			}
+		}
 	}
 
 	if isVM && imagePath == "" {
