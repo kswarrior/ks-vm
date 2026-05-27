@@ -62,8 +62,18 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 	}
 
 	if resp.StatusCode >= 400 {
+		var errData struct {
+			Error     string `json:"error"`
+			ErrorCode int    `json:"error_code"`
+			ErrorType string `json:"error_type"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errData)
 		resp.Body.Close()
-		return nil, fmt.Errorf("LXD error: status %d", resp.StatusCode)
+		errMsg := errData.Error
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("LXD error: %s", errMsg)
 	}
 
 	return resp, nil
@@ -96,19 +106,22 @@ func (c *LXDClient) waitForOperation(opPath string) error {
 }
 
 func (c *LXDClient) ensureImage(image string) error {
-	// Check if image exists by fingerprint or alias
+	// 1. Check if image already exists locally by alias or fingerprint
 	resp, err := c.do("GET", "/1.0/images/aliases/"+image, nil)
 	if err == nil {
 		resp.Body.Close()
 		return nil
 	}
-	resp, err = c.do("GET", "/1.0/images/"+image, nil)
-	if err == nil {
-		resp.Body.Close()
-		return nil
+	// Try fingerprint
+	if len(image) == 64 {
+		resp, err = c.do("GET", "/1.0/images/"+image, nil)
+		if err == nil {
+			resp.Body.Close()
+			return nil
+		}
 	}
 
-	// Default to linuxcontainers.org if no prefix
+	// 2. Resolve image source
 	sourceURL := "https://images.linuxcontainers.org"
 	imgName := image
 	sourceType := "simplestreams"
@@ -116,23 +129,30 @@ func (c *LXDClient) ensureImage(image string) error {
 	if strings.Contains(image, ":") {
 		parts := strings.Split(image, ":")
 		if parts[0] == "ubuntu" {
-			// Official Ubuntu cloud images
+			// Official Ubuntu images use specific streams
 			sourceURL = "https://cloud-images.ubuntu.com/releases"
 			imgName = parts[1]
-			// Ensure imgName doesn't have the version name if it's just '24.04'
-			// LXD simplestreams for Ubuntu releases uses the version number
 		}
 	}
 
-	// Pull if not found
-	fmt.Printf("Image %s not found, pulling from %s...\n", image, sourceURL)
+	// 3. Pull image
+	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, sourceURL, imgName)
+
 	body := map[string]interface{}{
 		"source": map[string]string{
-			"type": sourceType,
-			"url":  sourceURL,
-			"name": imgName,
+			"type":   sourceType,
+			"url":    sourceURL,
+			"alias":  imgName, // simplestreams often expects 'alias' instead of 'name' in some versions
 		},
-		"aliases": []map[string]string{{"name": image}},
+		"aliases": []map[string]interface{}{
+			{"name": image},
+		},
+		"public": false,
+	}
+
+	// Double check: if it's linuxcontainers.org, it might need 'name' instead
+	if strings.Contains(sourceURL, "linuxcontainers.org") {
+		body["source"].(map[string]string)["name"] = imgName
 	}
 	resp, err = c.do("POST", "/1.0/images", body)
 	if err != nil {
@@ -145,6 +165,22 @@ func (c *LXDClient) ensureImage(image string) error {
 	}
 	json.NewDecoder(resp.Body).Decode(&opData)
 	return c.waitForOperation(opData.Operation)
+}
+
+func (c *LXDClient) getStoragePool() string {
+	resp, err := c.do("GET", "/1.0/storage-pools", nil)
+	if err == nil {
+		defer resp.Body.Close()
+		var data struct {
+			Metadata []string `json:"metadata"`
+		}
+		json.NewDecoder(resp.Body).Decode(&data)
+		if len(data.Metadata) > 0 {
+			parts := strings.Split(data.Metadata[0], "/")
+			return parts[len(parts)-1]
+		}
+	}
+	return "default"
 }
 
 func (c *LXDClient) CreateContainer(name string, cpu uint, ramMB uint, diskGB uint, image string) error {
@@ -162,6 +198,8 @@ func (c *LXDClient) CreateContainer(name string, cpu uint, ramMB uint, diskGB ui
 		source["alias"] = image
 	}
 
+	pool := c.getStoragePool()
+
 	config := map[string]interface{}{
 		"name":   name,
 		"source": source,
@@ -172,7 +210,7 @@ func (c *LXDClient) CreateContainer(name string, cpu uint, ramMB uint, diskGB ui
 		"devices": map[string]interface{}{
 			"root": map[string]string{
 				"path": "/",
-				"pool": "default",
+				"pool": pool,
 				"type": "disk",
 				"size": fmt.Sprintf("%dGB", diskGB),
 			},
@@ -210,6 +248,9 @@ func (c *LXDClient) ControlContainer(name, action string) error {
 	case "restart":
 		lxdAction = "restart"
 	case "delete":
+		// LXD requires instance to be stopped before deletion
+		c.do("PUT", "/1.0/instances/"+name+"/state", map[string]string{"action": "stop", "force": "true"})
+
 		resp, err := c.do("DELETE", "/1.0/instances/"+name, nil)
 		if err != nil {
 			return err

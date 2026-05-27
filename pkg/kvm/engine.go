@@ -233,6 +233,9 @@ func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error 
 	if opts.DiskGB == 0 {
 		opts.DiskGB = 10
 	}
+	if opts.CPUs == 0 {
+		opts.CPUs = 1
+	}
 
 	if err := m.lxd.CreateContainer(name, opts.CPUs, opts.MemoryMB, opts.DiskGB, image); err != nil {
 		return err
