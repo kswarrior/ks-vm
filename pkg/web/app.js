@@ -234,8 +234,12 @@ async function deployInstance() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
+        const result = await res.json();
         if (res.ok) showTab('instances');
-        else alert("Error: " + (await res.json()).error);
+        else {
+            alert("Deployment Error: " + (result.error || "Unknown error"));
+            console.error("Deploy failed:", result);
+        }
     } catch (e) {
         alert("Deployment failed: " + e.message);
     } finally {

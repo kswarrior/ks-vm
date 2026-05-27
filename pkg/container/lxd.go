@@ -96,21 +96,31 @@ func (c *LXDClient) waitForOperation(opPath string) error {
 }
 
 func (c *LXDClient) ensureImage(image string) error {
-	// Check if image exists
+	// Check if image exists by fingerprint or alias
 	resp, err := c.do("GET", "/1.0/images/aliases/"+image, nil)
 	if err == nil {
 		resp.Body.Close()
 		return nil
 	}
+	resp, err = c.do("GET", "/1.0/images/"+image, nil)
+	if err == nil {
+		resp.Body.Close()
+		return nil
+	}
 
-	// Handle standard Ubuntu aliases like ubuntu:24.04
+	// Default to linuxcontainers.org if no prefix
 	sourceURL := "https://images.linuxcontainers.org"
 	imgName := image
+	sourceType := "simplestreams"
+
 	if strings.Contains(image, ":") {
 		parts := strings.Split(image, ":")
 		if parts[0] == "ubuntu" {
+			// Official Ubuntu cloud images
 			sourceURL = "https://cloud-images.ubuntu.com/releases"
 			imgName = parts[1]
+			// Ensure imgName doesn't have the version name if it's just '24.04'
+			// LXD simplestreams for Ubuntu releases uses the version number
 		}
 	}
 
@@ -118,7 +128,7 @@ func (c *LXDClient) ensureImage(image string) error {
 	fmt.Printf("Image %s not found, pulling from %s...\n", image, sourceURL)
 	body := map[string]interface{}{
 		"source": map[string]string{
-			"type": "simplestreams",
+			"type": sourceType,
 			"url":  sourceURL,
 			"name": imgName,
 		},
@@ -142,12 +152,19 @@ func (c *LXDClient) CreateContainer(name string, cpu uint, ramMB uint, diskGB ui
 		return fmt.Errorf("failed to ensure image: %v", err)
 	}
 
+	// Determine if we're using a fingerprint or an alias
+	source := map[string]string{
+		"type": "image",
+	}
+	if len(image) == 64 && !strings.Contains(image, ":") && !strings.Contains(image, ".") {
+		source["fingerprint"] = image
+	} else {
+		source["alias"] = image
+	}
+
 	config := map[string]interface{}{
-		"name": name,
-		"source": map[string]string{
-			"type":  "image",
-			"alias": image,
-		},
+		"name":   name,
+		"source": source,
 		"config": map[string]string{
 			"limits.cpu":    fmt.Sprintf("%d", cpu),
 			"limits.memory": fmt.Sprintf("%dMB", ramMB),
