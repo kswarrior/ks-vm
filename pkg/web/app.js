@@ -77,10 +77,11 @@ async function fetchInstances(animate = false) {
                 card.appendChild(overlay);
             }
 
-            const statusClass = `status-${vm.Status}`;
-            const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
-            const memTotal = (vm.MemoryMB / 1024).toFixed(1);
-            const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
+            const statusText = vm.Status || 'unknown';
+            const statusClass = `status-${statusText}`;
+            const memUsed = ((vm.MemoryUsage || 0) / 1024).toFixed(1);
+            const memTotal = ((vm.MemoryMB || 1024) / 1024).toFixed(1);
+            const diskUsed = ((vm.DiskUsage || 0) / 1024 / 1024 / 1024).toFixed(1);
             const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
@@ -95,11 +96,14 @@ async function fetchInstances(animate = false) {
                 <div class="instance-header">
                     <div style="display:flex; align-items:center; gap:12px;">
                         <div class="instance-icon">
-                            <svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>
+                            ${vm.Type === 'container' ?
+                                '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>' :
+                                '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>'
+                            }
                         </div>
                         <div>
                             <div class="instance-title">${vm.Name}</div>
-                            <div class="instance-status ${statusClass}">${vm.Status.toUpperCase()}</div>
+                            <div class="instance-status ${statusClass}">${statusText.toUpperCase()}</div>
                         </div>
                     </div>
                     <div class="actions-menu">

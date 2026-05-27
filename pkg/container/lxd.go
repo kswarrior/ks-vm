@@ -53,13 +53,19 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 	resp, err := c.client.Do(req)
 	if err != nil {
 		if strings.Contains(err.Error(), "socket not found") || strings.Contains(err.Error(), "no such file or directory") {
-			return nil, fmt.Errorf("LXD socket not found. Please ensure LXD is installed and initialized (run 'lxd init').")
+			return nil, fmt.Errorf("LXD socket not found")
 		}
 		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "permission denied") {
-			return nil, fmt.Errorf("LXD service is inaccessible (check permissions or if service is running).")
+			return nil, fmt.Errorf("LXD service is inaccessible")
 		}
 		return nil, err
 	}
+
+	if resp.StatusCode >= 400 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("LXD error: status %d", resp.StatusCode)
+	}
+
 	return resp, nil
 }
 
@@ -224,13 +230,14 @@ func (c *LXDClient) EditContainerResources(name string, cpu uint, ramMB uint) er
 }
 
 type ContainerMetrics struct {
-	CPUUsage    float64 `json:"cpu_usage"`
-	MemoryUsed  uint64  `json:"memory_used"`
-	MemoryTotal uint64  `json:"memory_total"`
-	DiskUsed    uint64  `json:"disk_used"`
-	DiskTotal   uint64  `json:"disk_total"`
-	Status      string  `json:"status"`
-	Logs        string  `json:"logs"`
+	CPUUsage    float64  `json:"cpu_usage"`
+	MemoryUsed  uint64   `json:"memory_used"`
+	MemoryTotal uint64   `json:"memory_total"`
+	DiskUsed    uint64   `json:"disk_used"`
+	DiskTotal   uint64   `json:"disk_total"`
+	Status      string   `json:"status"`
+	Logs        string   `json:"logs"`
+	IPs         []string `json:"ips"`
 }
 
 func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) {
@@ -252,6 +259,13 @@ func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) 
 			Disk map[string]struct {
 				Usage uint64 `json:"usage"`
 			} `json:"disk"`
+			Network map[string]struct {
+				Addresses []struct {
+					Address string `json:"address"`
+					Family  string `json:"family"`
+					Scope   string `json:"scope"`
+				} `json:"addresses"`
+			} `json:"network"`
 		} `json:"metadata"`
 	}
 	json.NewDecoder(resp.Body).Decode(&data)
@@ -261,17 +275,38 @@ func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) 
 		MemoryUsed: data.Metadata.Memory.Usage / 1024 / 1024,
 	}
 
+	for _, disk := range data.Metadata.Disk {
+		metrics.DiskUsed = disk.Usage / 1024 / 1024 / 1024
+		break // Usually just one root disk
+	}
+
+	for _, net := range data.Metadata.Network {
+		for _, addr := range net.Addresses {
+			if addr.Family == "inet" && addr.Scope == "global" {
+				metrics.IPs = append(metrics.IPs, addr.Address)
+			}
+		}
+	}
+
 	// Fetch instance config for limits
 	resp2, _ := c.do("GET", "/1.0/instances/"+name, nil)
 	if resp2 != nil {
 		defer resp2.Body.Close()
 		var instData struct {
 			Metadata struct {
-				Config map[string]string `json:"config"`
+				Config  map[string]string `json:"config"`
+				Devices map[string]struct {
+					Size string `json:"size"`
+				} `json:"devices"`
 			} `json:"metadata"`
 		}
 		json.NewDecoder(resp2.Body).Decode(&instData)
-		fmt.Sscanf(instData.Metadata.Config["limits.memory"], "%dMB", &metrics.MemoryTotal)
+		if mem, ok := instData.Metadata.Config["limits.memory"]; ok {
+			fmt.Sscanf(mem, "%dMB", &metrics.MemoryTotal)
+		}
+		if root, ok := instData.Metadata.Devices["root"]; ok {
+			fmt.Sscanf(root.Size, "%dGB", &metrics.DiskTotal)
+		}
 	}
 
 	return metrics, nil

@@ -175,10 +175,11 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		}
 		configDrivePath = iso
 
-		// Save credentials to meta.json
+		// Save credentials and type to meta.json
 		meta := map[string]string{
 			"user":     opts.User,
 			"password": opts.Password,
+			"type":     "vm",
 		}
 		metaData, _ := json.Marshal(meta)
 		os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
@@ -236,6 +237,15 @@ func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error 
 	if err := m.lxd.CreateContainer(name, opts.CPUs, opts.MemoryMB, opts.DiskGB, image); err != nil {
 		return err
 	}
+
+	// Save type to meta.json
+	instancesDir := filepath.Join(BaseDir, "instances", name)
+	os.MkdirAll(instancesDir, 0755)
+	meta := map[string]string{
+		"type": "container",
+	}
+	metaData, _ := json.Marshal(meta)
+	os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 
 	m.clearDeployingStatus(name)
 	return nil
@@ -855,19 +865,38 @@ func (m *Manager) Version() (*VersionInfo, error) {
 
 // Info returns detailed information about an instance.
 func (m *Manager) Info(name string) (*VMInfo, error) {
-	// Try LXD first as it's lighter
-	lxdMetrics, err := m.lxd.GetContainerMetrics(name)
-	if err == nil {
-		return &VMInfo{
-			Name: name, Status: lxdMetrics.Status, Type: "container", IPs: []string{"internal"},
-			CPUs: 1, CPUUsage: 0.0, MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
-			DiskUsage: int64(lxdMetrics.DiskUsed), DiskGB: uint(lxdMetrics.DiskTotal),
-			Image: "lxd-image",
-		}, nil
+	// 1. Determine instance type from metadata
+	instType := "vm"
+	if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+		var meta map[string]string
+		if err := json.Unmarshal(data, &meta); err == nil {
+			if t, ok := meta["type"]; ok {
+				instType = t
+			}
+		}
+	}
+
+	// 2. Route to correct provider
+	if instType == "container" {
+		lxdMetrics, err := m.lxd.GetContainerMetrics(name)
+		if err == nil {
+			ips := lxdMetrics.IPs
+			if len(ips) == 0 {
+				ips = []string{"internal"}
+			}
+			return &VMInfo{
+				Name: name, Status: lxdMetrics.Status, Type: "container", IPs: ips,
+				CPUs: 1, CPUUsage: lxdMetrics.CPUUsage,
+				MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
+				DiskUsage: int64(lxdMetrics.DiskUsed * 1024 * 1024 * 1024), DiskGB: uint(lxdMetrics.DiskTotal),
+				Image: "lxd-image",
+			}, nil
+		}
 	}
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
+		defer domain.Free()
 		info, err := domain.GetInfo()
 		if err != nil {
 			return nil, err
@@ -977,6 +1006,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 // List returns a list of all instances.
 func (m *Manager) List() ([]VMInfo, error) {
 	var infos []VMInfo
+	// VMs from Libvirt
 	domains, err := m.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
 	if err == nil {
 		for _, domain := range domains {
@@ -987,11 +1017,21 @@ func (m *Manager) List() ([]VMInfo, error) {
 		}
 	}
 
-	// LXD List
+	// Containers from LXD
 	if containers, err := m.lxd.ListContainers(); err == nil {
 		for _, name := range containers {
 			if info, err := m.Info(name); err == nil {
-				infos = append(infos, *info)
+				// Avoid duplicates if LXD name matches VM name
+				found := false
+				for _, existing := range infos {
+					if existing.Name == name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					infos = append(infos, *info)
+				}
 			}
 		}
 	}
