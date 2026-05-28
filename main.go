@@ -19,6 +19,18 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
+	// Intercept internal-run early to bypass Cobra flag parsing for container arguments
+	if len(os.Args) > 3 && os.Args[1] == "internal-run" {
+		name := os.Args[2]
+		dir := os.Args[3]
+		args := os.Args[4:]
+		if err := container.Run(name, dir, args); err != nil {
+			fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -199,6 +211,12 @@ var listCmd = &cobra.Command{
 	},
 }
 
+var addImgType string
+
+func init() {
+	addCmd.Flags().StringVar(&addImgType, "type", "vm", "Image type (vm or container)")
+}
+
 var addCmd = &cobra.Command{
 	Use:   "add <name> <url_or_path>",
 	Short: "Register a base cloud image",
@@ -211,7 +229,7 @@ var addCmd = &cobra.Command{
 		}
 		defer manager.Close()
 
-		if err := manager.AddImage(args[0], args[1]); err != nil {
+		if err := manager.AddImage(args[0], args[1], addImgType); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
 		}

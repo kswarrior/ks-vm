@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -29,14 +28,15 @@ type cpuStat struct {
 	Time  time.Time
 }
 
-// Manager handles interaction with libvirt.
+// Manager handles interaction with libvirt and LXD.
 type Manager struct {
 	conn     *libvirt.Connect
+	lxd      *container.LXDClient
 	cpuCache map[string]cpuStat
 	statsMu  sync.RWMutex
 }
 
-// NewManager creates a new Manager and connects to the local libvirt daemon.
+// NewManager creates a new Manager and connects to the local libvirt and LXD daemons.
 func NewManager() (*Manager, error) {
 	uri := os.Getenv("LIBVIRT_DEFAULT_URI")
 	if uri == "" {
@@ -48,6 +48,7 @@ func NewManager() (*Manager, error) {
 	}
 	return &Manager{
 		conn:     conn,
+		lxd:      container.NewLXDClient(),
 		cpuCache: make(map[string]cpuStat),
 	}, nil
 }
@@ -63,11 +64,12 @@ func (m *Manager) Close() error {
 
 // DeployOptions contains optional parameters for deployment.
 type DeployOptions struct {
-	User     string
-	Password string
-	CPUs     uint
-	MemoryMB uint
-	DiskGB   uint
+	User         string
+	Password     string
+	CPUs         uint
+	MemoryMB     uint
+	DiskGB       uint
+	InstanceType string // "vm" or "container"
 }
 
 // Deploy creates a new VM or Container instance.
@@ -77,12 +79,18 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	var imagePath string
 	isVM := false
 
-	// Check if baseImage is an absolute or relative path to a file
-	if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
+	if opts.InstanceType == "vm" {
+		isVM = true
+	} else if opts.InstanceType == "container" {
+		isVM = false
+	} else if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
+		// Auto-detection from absolute path
 		imagePath = baseImage
 		isVM = true
-	} else {
-		// Check in ImagesDir
+	}
+
+	if !isVM {
+		// Image resolution for either implicit or explicit types
 		paths := []string{
 			filepath.Join(ImagesDir, baseImage),
 			filepath.Join(ImagesDir, baseImage+".qcow2"),
@@ -96,14 +104,28 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		}
 	}
 
+	if isVM && imagePath == "" && opts.InstanceType == "vm" {
+		// Explicitly requested VM but image not found
+		return fmt.Errorf("base VM image %s not found in image pool", baseImage)
+	}
+
 	if !isVM {
-		// Check for .docker marker
-		markerPath := filepath.Join(ImagesDir, baseImage+".docker")
+		// Final check for VM image if auto-detection failed but it's not obviously a container
+		if opts.InstanceType == "" && !strings.HasPrefix(baseImage, "docker://") && !strings.Contains(baseImage, ":") {
+			// If it's a simple name and no type specified, and no .lxd marker, it might be a missing VM image
+			markerPath := filepath.Join(ImagesDir, baseImage+".lxd")
+			if _, err := os.Stat(markerPath); os.IsNotExist(err) {
+				return fmt.Errorf("base image %s not found. If this is a VM image, please add it first. If it's a container, specify 'container' type.", baseImage)
+			}
+		}
+
+		// Check for .lxd marker
+		markerPath := filepath.Join(ImagesDir, baseImage+".lxd")
 		if data, err := os.ReadFile(markerPath); err == nil {
 			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
 		}
 
-		if strings.HasPrefix(baseImage, "docker://") || !strings.Contains(baseImage, "/") {
+		if strings.HasPrefix(baseImage, "docker://") || strings.Contains(baseImage, ":") || opts.InstanceType == "container" {
 			return m.DeployContainer(name, baseImage, opts)
 		}
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
@@ -142,6 +164,15 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 			return err
 		}
 		configDrivePath = iso
+
+		// Save credentials and type to meta.json
+		meta := map[string]string{
+			"user":     opts.User,
+			"password": opts.Password,
+			"type":     "vm",
+		}
+		metaData, _ := json.Marshal(meta)
+		os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 	}
 
 	// 6. Generate XML
@@ -183,69 +214,42 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	return nil
 }
 
-// DeployContainer provisions a container instance.
+// DeployContainer provisions a container instance using LXD.
 func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error {
-	destDir := filepath.Join(BaseDir, "containers", name)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	image = strings.TrimPrefix(image, "docker://")
+	if opts.MemoryMB == 0 {
+		opts.MemoryMB = 512
+	}
+	if opts.DiskGB == 0 {
+		opts.DiskGB = 10
+	}
+	if opts.CPUs == 0 {
+		opts.CPUs = 1
+	}
+
+	if err := m.lxd.CreateContainer(name, opts.CPUs, opts.MemoryMB, opts.DiskGB, image); err != nil {
 		return err
 	}
 
-	deployed := false
-	defer func() {
-		if !deployed {
-			os.RemoveAll(destDir)
-		}
-	}()
+	// Save type to meta.json
+	instancesDir := filepath.Join(BaseDir, "instances", name)
+	os.MkdirAll(instancesDir, 0755)
+	meta := map[string]string{
+		"type": "container",
+	}
+	metaData, _ := json.Marshal(meta)
+	os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 
-	if err := container.PullAndUnpack(image, destDir); err != nil {
-		return err
-	}
-
-	meta := map[string]interface{}{
-		"type":      "container",
-		"image":     image,
-		"status":    "stopped",
-		"cpus":      opts.CPUs,
-		"memory_mb": opts.MemoryMB,
-		"disk_gb":   opts.DiskGB,
-	}
-	metaJSON, err := json.Marshal(meta)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644); err != nil {
-		return err
-	}
-	deployed = true
 	m.clearDeployingStatus(name)
 	return nil
 }
 
 func (m *Manager) isContainerRunning(name string) (bool, int) {
-	destDir := filepath.Join(BaseDir, "containers", name)
-	pidPath := filepath.Join(destDir, "pid")
-	pidData, err := os.ReadFile(pidPath)
+	metrics, err := m.lxd.GetContainerMetrics(name)
 	if err != nil {
 		return false, 0
 	}
-	var pid int
-	fmt.Sscanf(string(pidData), "%d", &pid)
-	if pid <= 0 {
-		return false, 0
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false, 0
-	}
-	// On Unix, FindProcess always succeeds. Use signal 0 to check existence.
-	err = process.Signal(syscall.Signal(0))
-	if err != nil {
-		// Update meta.json if we detected it died
-		m.updateContainerStatus(name, "stopped")
-		return false, 0
-	}
-	return true, pid
+	return metrics.Status == "running", 1 // LXD managed, PID doesn't matter for nsenter here
 }
 
 func (m *Manager) setDeployingStatus(name string) {
@@ -291,50 +295,11 @@ func (m *Manager) Launch(name string) error {
 		return domain.Create()
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", name)
-	if _, err := os.Stat(destDir); err == nil {
-		alreadyRunning, _ := m.isContainerRunning(name)
-		if alreadyRunning {
-			return fmt.Errorf("container %s is already running", name)
-		}
-
-		// Set environment variable to run container in background
-		os.Setenv("KSVM_BG", "1")
-		defer os.Unsetenv("KSVM_BG")
-
-		// Run setup in a long-running process to keep the container alive
-		// We use a shell loop as a more universal way to keep the namespace open
-		keepAliveCmd := []string{"/bin/sh", "-c", "while true; do sleep 3600; done"}
-		if err := container.Run(name, destDir, keepAliveCmd); err != nil {
-			return fmt.Errorf("failed to start container: %v", err)
-		}
-
-		// Verify liveness with retries
-		var isRunning bool
-		for i := 0; i < 5; i++ {
-			time.Sleep(200 * time.Millisecond)
-			if r, _ := m.isContainerRunning(name); r {
-				isRunning = true
-				break
-			}
-		}
-
-		if !isRunning {
-			logData, _ := os.ReadFile(filepath.Join(destDir, "container.log"))
-			return fmt.Errorf("container failed to stay alive. Check /var/lib/ksvm/containers/%s/container.log. Last log: %s", name, string(logData))
-		}
-
-		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err == nil {
-			var meta map[string]interface{}
-			if err := json.Unmarshal(metaData, &meta); err == nil {
-				meta["status"] = "running"
-				metaJSON, _ := json.Marshal(meta)
-				os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
-			}
-		}
+	// Try LXD
+	if err := m.lxd.ControlContainer(name, "start"); err == nil {
 		return nil
 	}
+
 	return fmt.Errorf("instance %s not found", name)
 }
 
@@ -352,28 +317,11 @@ func (m *Manager) Stop(name string) error {
 		return domain.Shutdown()
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", name)
-	if _, err := os.Stat(destDir); err == nil {
-		running, _ := m.isContainerRunning(name)
-		if !running {
-			return fmt.Errorf("container %s is not running", name)
-		}
-
-		if err := container.Stop(destDir); err != nil {
-			return err
-		}
-
-		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err == nil {
-			var meta map[string]interface{}
-			if err := json.Unmarshal(metaData, &meta); err == nil {
-				meta["status"] = "stopped"
-				metaJSON, _ := json.Marshal(meta)
-				os.WriteFile(filepath.Join(destDir, "meta.json"), metaJSON, 0644)
-			}
-		}
+	// Try LXD
+	if err := m.lxd.ControlContainer(name, "stop"); err == nil {
 		return nil
 	}
+
 	return fmt.Errorf("instance %s not found", name)
 }
 
@@ -408,38 +356,13 @@ func (m *Manager) UpdateInstance(oldName, newName string, opts DeployOptions) er
 		}
 
 		if newName != "" && newName != oldName {
-			isActive, _ := domain.IsActive()
-			if isActive {
-				return fmt.Errorf("cannot rename a running VM")
-			}
-			// Renaming in libvirt is tricky (undefine/define), for now we just change metadata if possible
-			// or return error if not implemented fully.
 			return fmt.Errorf("renaming VMs not yet fully supported in this prototype")
 		}
 		return nil
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", oldName)
-	if _, err := os.Stat(destDir); err == nil {
-		// Container Update
-		if newName != "" && newName != oldName {
-			newDir := filepath.Join(BaseDir, "containers", newName)
-			if err := os.Rename(destDir, newDir); err != nil {
-				return err
-			}
-			destDir = newDir
-		}
-
-		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err == nil {
-			var meta map[string]interface{}
-			json.Unmarshal(metaData, &meta)
-			if opts.User != "" {
-				meta["user"] = opts.User
-			}
-			newMeta, _ := json.Marshal(meta)
-			os.WriteFile(filepath.Join(destDir, "meta.json"), newMeta, 0644)
-		}
+	// LXD Container Update
+	if err := m.lxd.EditContainerResources(oldName, opts.CPUs, opts.MemoryMB); err == nil {
 		return nil
 	}
 
@@ -459,6 +382,8 @@ type VMInfo struct {
 	DiskGB      uint
 	DiskUsage   int64
 	Image       string
+	User        string `json:"user,omitempty"`
+	Password    string `json:"password,omitempty"`
 }
 
 // Delete stops, destroys, and removes the VM/Container and its storage.
@@ -475,19 +400,19 @@ func (m *Manager) Delete(name string) error {
 		return os.RemoveAll(filepath.Join(BaseDir, "instances", name))
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", name)
-	if _, err := os.Stat(destDir); err == nil {
-		container.Stop(destDir)
-		return os.RemoveAll(destDir)
+	// Try LXD
+	if err := m.lxd.ControlContainer(name, "delete"); err == nil {
+		return nil
 	}
+
 	return fmt.Errorf("instance %s not found", name)
 }
 
 // AddImage registers a base cloud image.
-func (m *Manager) AddImage(name, source string) error {
-	if strings.HasPrefix(source, "docker://") {
+func (m *Manager) AddImage(name, source string, imgType string) error {
+	if imgType == "container" {
 		os.MkdirAll(ImagesDir, 0755)
-		return os.WriteFile(filepath.Join(ImagesDir, name+".docker"), []byte(source), 0644)
+		return os.WriteFile(filepath.Join(ImagesDir, name+".lxd"), []byte(source), 0644)
 	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		_, err := DownloadImage(name, source)
@@ -507,10 +432,11 @@ func (m *Manager) RemoveImage(name string) error {
 	return RemoveImage(name)
 }
 
-// Restart reboots a VM/Container gracefully.
+// SetupSSH initializes a reverse tunnel for SSH access inside the guest.
 func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use nohup and backgrounding to ensure the process persists
-	cmdStr := fmt.Sprintf("nohup /bin/sh -c 'curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s' > /dev/null 2>&1 &", name)
+	// Use a double-nohup fork wrapper to ensure the process survives session exit
+	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
+	cmdStr := fmt.Sprintf("nohup sh -c 'nohup %s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -571,22 +497,14 @@ func (m *Manager) Restart(name string) error {
 func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		destDir := filepath.Join(BaseDir, "containers", name)
-		if _, err := os.Stat(destDir); err == nil {
-			pidData, err := os.ReadFile(filepath.Join(destDir, "pid"))
-			if err != nil {
-				return "", fmt.Errorf("container not running")
-			}
-
-			if len(cmdArgs) == 0 {
-				return "", fmt.Errorf("no command provided")
-			}
-			cmd := exec.Command("nsenter", "-t", strings.TrimSpace(string(pidData)), "-m", "-u", "-i", "-n", "-p", "--")
-			cmd.Args = append(cmd.Args, cmdArgs...)
+		// Try LXD
+		if running, _ := m.isContainerRunning(name); running {
+			fullCmd := strings.Join(cmdArgs, " ")
+			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
-		return "", fmt.Errorf("instance %s not found", name)
+		return "", fmt.Errorf("instance %s not found or not running", name)
 	}
 
 	execCmd := map[string]interface{}{
@@ -600,8 +518,50 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	cmdJSON, _ := json.Marshal(execCmd)
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
 	if err != nil {
-		if strings.Contains(err.Error(), "Guest agent is not responding") {
-			return "", fmt.Errorf("QEMU Guest Agent is not connected. Please ensure it is installed and running in the guest OS.")
+		if strings.Contains(err.Error(), "Guest agent is not responding") || strings.Contains(err.Error(), "Guest agent is not configured") {
+			// Fallback to Serial Console Injection
+			stream, sErr := m.conn.NewStream(0)
+			if sErr != nil {
+				return "", fmt.Errorf("agent unavailable and console fallback failed: %v", sErr)
+			}
+			defer stream.Free()
+			if sErr := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); sErr != nil {
+				return "", fmt.Errorf("agent unavailable and console open failed: %v", sErr)
+			}
+			// Interactive login and command injection
+			info, _ := m.Info(name)
+			user := info.User
+			pass := info.Password
+			if user == "" {
+				user = "ubuntu"
+			}
+
+			fullCmd := strings.Join(cmdArgs, " ")
+			stream.Send([]byte("\n\n"))
+			time.Sleep(1 * time.Second)
+
+			// Read buffer to detect login prompt
+			buf := make([]byte, 4096)
+			n, _ := stream.Recv(buf)
+			output := string(buf[:n])
+
+			if strings.Contains(output, "login:") || strings.Contains(output, "username:") {
+				stream.Send([]byte(user + "\n"))
+				time.Sleep(500 * time.Millisecond)
+				stream.Send([]byte(pass + "\n"))
+				time.Sleep(1 * time.Second)
+			}
+
+			stream.Send([]byte(fullCmd + "\n"))
+			time.Sleep(2 * time.Second)
+
+			n, _ = stream.Recv(buf)
+			res := string(buf[:n])
+			if res == "" {
+				res = "(no output captured from console - command may still be running)"
+			}
+			res = strings.TrimPrefix(res, fullCmd)
+			return "Command injected via serial console. Output preview:\n" + strings.TrimSpace(res), nil
 		}
 		return "", err
 	}
@@ -769,19 +729,12 @@ func (m *Manager) Mount(name, hostPath, guestPath string) error {
 func (m *Manager) Shell(name string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		running, pid := m.isContainerRunning(name)
-		if running {
-			// All namespaces: m=mount, u=uts, i=ipc, n=net, p=pid
-			cmd := exec.Command("nsenter", "-t", fmt.Sprintf("%d", pid), "-m", "-u", "-i", "-n", "-p", "/bin/sh")
+		if running, _ := m.isContainerRunning(name); running {
+			cmd := exec.Command("lxc", "exec", name, "--", "/bin/bash")
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return cmd.Run()
 		}
-
-		destDir := filepath.Join(BaseDir, "containers", name)
-		if _, err := os.Stat(destDir); err == nil {
-			return fmt.Errorf("container %s is not running", name)
-		}
-		return fmt.Errorf("instance %s not found", name)
+		return fmt.Errorf("instance %s not found or not running", name)
 	}
 
 	isActive, err := domain.IsActive()
@@ -905,8 +858,38 @@ func (m *Manager) Version() (*VersionInfo, error) {
 
 // Info returns detailed information about an instance.
 func (m *Manager) Info(name string) (*VMInfo, error) {
+	// 1. Determine instance type from metadata
+	instType := "vm"
+	if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+		var meta map[string]string
+		if err := json.Unmarshal(data, &meta); err == nil {
+			if t, ok := meta["type"]; ok {
+				instType = t
+			}
+		}
+	}
+
+	// 2. Route to correct provider
+	if instType == "container" {
+		lxdMetrics, err := m.lxd.GetContainerMetrics(name)
+		if err == nil {
+			ips := lxdMetrics.IPs
+			if len(ips) == 0 {
+				ips = []string{"internal"}
+			}
+			return &VMInfo{
+				Name: name, Status: lxdMetrics.Status, Type: "container", IPs: ips,
+				CPUs: 1, CPUUsage: lxdMetrics.CPUUsage,
+				MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
+				DiskUsage: int64(lxdMetrics.DiskUsed * 1024 * 1024 * 1024), DiskGB: uint(lxdMetrics.DiskTotal),
+				Image: "lxd-image",
+			}, nil
+		}
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
+		defer domain.Free()
 		info, err := domain.GetInfo()
 		if err != nil {
 			return nil, err
@@ -975,6 +958,16 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			diskGB = uint(blockInfo.Capacity / 1024 / 1024 / 1024)
 		}
 
+		// Load Credentials
+		user, pass := "", ""
+		if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+			var meta map[string]string
+			if err := json.Unmarshal(data, &meta); err == nil {
+				user = meta["user"]
+				pass = meta["password"]
+			}
+		}
+
 		// CPU Calculation
 		cpuUsage := 0.0
 		if state == libvirt.DOMAIN_RUNNING {
@@ -996,56 +989,17 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			MemoryMB:    uint(info.MaxMem / 1024),
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
+			User:  user, Password: pass,
 		}, nil
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", name)
-	if _, err := os.Stat(destDir); err == nil {
-		metaData, err := os.ReadFile(filepath.Join(destDir, "meta.json"))
-		if err != nil {
-			return nil, err
-		}
-		var meta map[string]interface{}
-		if err := json.Unmarshal(metaData, &meta); err != nil {
-			return nil, err
-		}
-		var rootfsUsage int64
-		filepath.Walk(filepath.Join(destDir, "rootfs"), func(_ string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() {
-				rootfsUsage += info.Size()
-			}
-			return nil
-		})
-
-		cpus := uint(1)
-		if c, ok := meta["cpus"].(float64); ok {
-			cpus = uint(c)
-		}
-		memMB := uint(512)
-		if m, ok := meta["memory_mb"].(float64); ok {
-			memMB = uint(m)
-		}
-		diskGB := uint(0)
-		if d, ok := meta["disk_gb"].(float64); ok {
-			diskGB = uint(d)
-		}
-
-		status, _ := meta["status"].(string)
-		image, _ := meta["image"].(string)
-
-		return &VMInfo{
-			Name: name, Status: status, Type: "container", IPs: []string{"internal"},
-			CPUs: cpus, CPUUsage: 0.0, MemoryMB: memMB, MemoryUsage: 0,
-			DiskUsage: rootfsUsage, DiskGB: diskGB,
-			Image: image,
-		}, nil
-	}
 	return nil, fmt.Errorf("instance %s not found", name)
 }
 
 // List returns a list of all instances.
 func (m *Manager) List() ([]VMInfo, error) {
 	var infos []VMInfo
+	// VMs from Libvirt
 	domains, err := m.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
 	if err == nil {
 		for _, domain := range domains {
@@ -1055,14 +1009,25 @@ func (m *Manager) List() ([]VMInfo, error) {
 			}
 		}
 	}
-	entries, _ := os.ReadDir(filepath.Join(BaseDir, "containers"))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			name := entry.Name()
+
+	// Containers from LXD
+	if containers, err := m.lxd.ListContainers(); err == nil {
+		for _, name := range containers {
 			if info, err := m.Info(name); err == nil {
-				infos = append(infos, *info)
+				// Avoid duplicates if LXD name matches VM name
+				found := false
+				for _, existing := range infos {
+					if existing.Name == name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					infos = append(infos, *info)
+				}
 			}
 		}
 	}
+
 	return infos, nil
 }

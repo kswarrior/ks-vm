@@ -21,7 +21,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(() => {
         const activeNavItem = document.querySelector('.nav-item.active');
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
-    }, 5000);
+        if (activeNavItem && activeNavItem.dataset.tab === 'system') fetchHostMetrics();
+    }, 2000);
 
     // Initial load
     try {
@@ -55,6 +56,7 @@ function showTab(tabId) {
     if (tabId === 'images') fetchImages(true);
     if (tabId === 'users') fetchUsers(true);
     if (tabId === 'log') fetchLogs(true);
+    if (tabId === 'system') fetchHostMetrics(true);
 }
 
 async function fetchInstances(animate = false) {
@@ -75,13 +77,15 @@ async function fetchInstances(animate = false) {
                 card.appendChild(overlay);
             }
 
-            const statusClass = `status-${vm.Status}`;
-            const memUsed = (vm.MemoryUsage / 1024).toFixed(1);
-            const memTotal = (vm.MemoryMB / 1024).toFixed(1);
-            const diskUsed = (vm.DiskUsage / 1024 / 1024 / 1024).toFixed(1);
+            const statusText = vm.Status || 'unknown';
+            const statusClass = `status-${statusText}`;
+            const memUsed = ((vm.MemoryUsage || 0) / 1024).toFixed(1);
+            const memTotal = ((vm.MemoryMB || 1024) / 1024).toFixed(1);
+            const diskUsed = ((vm.DiskUsage || 0) / 1024 / 1024 / 1024).toFixed(1);
             const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
+            const typeLabel = vm.Type === 'container' ? 'LXD' : 'VM';
             const memTotalVal = vm.MemoryMB || 1024;
             const memPerc = Math.min(100, ((vm.MemoryUsage || 0) / memTotalVal * 100)).toFixed(1);
             const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
@@ -93,11 +97,14 @@ async function fetchInstances(animate = false) {
                 <div class="instance-header">
                     <div style="display:flex; align-items:center; gap:12px;">
                         <div class="instance-icon">
-                            <svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>
+                            ${vm.Type === 'container' ?
+                                '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>' :
+                                '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>'
+                            }
                         </div>
                         <div>
                             <div class="instance-title">${vm.Name}</div>
-                            <div class="instance-status ${statusClass}">${vm.Status.toUpperCase()}</div>
+                            <div class="instance-status ${statusClass}">${statusText.toUpperCase()}</div>
                         </div>
                     </div>
                     <div class="actions-menu">
@@ -124,7 +131,7 @@ async function fetchInstances(animate = false) {
                     </div>
                     <div class="info-group">
                         <div class="info-label">Type</div>
-                        <div class="info-value" style="text-transform:uppercase;">${vm.Type}</div>
+                        <div class="info-value" style="text-transform:uppercase;">${typeLabel}</div>
                     </div>
                 </div>
 
@@ -204,23 +211,71 @@ function selectImage(name) {
     document.getElementById('image-dropdown').style.display = 'none';
 }
 
+function toggleDeployFields() {
+    const type = document.getElementById('deploy-type').value;
+    const note = document.getElementById('lxd-deploy-note');
+    if (type === 'container') {
+        note.style.display = 'block';
+    } else {
+        note.style.display = 'none';
+    }
+}
+
+function toggleAddImgFields() {
+    const type = document.getElementById('img-type').value;
+    const nameLabel = document.getElementById('img-name-label');
+    const urlLabel = document.getElementById('img-url-label');
+    const help = document.getElementById('img-help');
+    const urlInput = document.getElementById('img-url');
+
+    if (type === 'container') {
+        nameLabel.innerText = "LXD Image Alias";
+        urlLabel.innerText = "LXD Source (Format: ubuntu:24.04)";
+        urlInput.placeholder = "e.g. ubuntu:24.04 or images:debian/12";
+        help.innerText = "This will register an alias in the LXD image store.";
+    } else {
+        nameLabel.innerText = "Image Label";
+        urlLabel.innerText = "Source URL (QCOW2)";
+        urlInput.placeholder = "https://cloud-images.ubuntu.com/...";
+        help.innerText = "";
+    }
+}
+
 async function deployInstance() {
+    const btn = document.querySelector('#deploy .btn-primary');
+    const oldText = btn.innerText;
+    btn.innerText = "DEPLOYING...";
+    btn.disabled = true;
+
     const data = {
         name: document.getElementById('deploy-name').value,
         image: document.getElementById('deploy-image').value || document.getElementById('image-search').value,
+        type: document.getElementById('deploy-type').value,
         cpus: parseInt(document.getElementById('deploy-cpu').value),
         memory_mb: parseInt(document.getElementById('deploy-ram').value),
         disk_gb: parseInt(document.getElementById('deploy-disk').value),
         user: document.getElementById('deploy-user').value,
         password: document.getElementById('deploy-pass').value
     };
-    const res = await fetch('/api/v1/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    if (res.ok) showTab('instances');
-    else alert("Error: " + (await res.json()).error);
+
+    try {
+        const res = await fetch('/api/v1/deploy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (res.ok) showTab('instances');
+        else {
+            alert("Deployment Error: " + (result.error || "Unknown error"));
+            console.error("Deploy failed:", result);
+        }
+    } catch (e) {
+        alert("Deployment failed: " + e.message);
+    } finally {
+        btn.innerText = oldText;
+        btn.disabled = false;
+    }
 }
 
 async function openEdit(name) {
@@ -260,12 +315,25 @@ async function action(type, name) {
 }
 
 async function getSSH(name) {
-    const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-        alert("SSH Setup Token: " + data.token);
-    } else {
-        alert("SSH Error: " + data.error);
+    const output = document.getElementById('exec-output');
+    document.getElementById('exec-title').innerText = "SSH Setup: " + name;
+    output.innerText = "Initializing persistent SSH tunnel inside " + name + "...\n";
+    document.getElementById('exec-command').value = "";
+    showTab('exec');
+
+    try {
+        const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            output.innerText += "\n--- SUCCESS ---\n";
+            output.innerText += "SSH Token: " + data.token + "\n";
+            output.innerText += "The tunnel is now running in the background of your VPS.\n";
+            output.innerText += "You can use this token at https://ks-ssh.pages.dev\n";
+        } else {
+            output.innerText += "\n--- ERROR ---\n" + data.error + "\n";
+        }
+    } catch (e) {
+        output.innerText += "\n--- FETCH FAILED ---\n" + e.message + "\n";
     }
 }
 
@@ -310,6 +378,130 @@ async function fetchImages(animate = false) {
             </div>
         </div>
     `).join('');
+}
+
+let charts = {};
+async function fetchHostMetrics(init = false) {
+    try {
+        const res = await fetch('/api/v1/monitor');
+        if (!res.ok) throw new Error("API status " + res.status);
+        const data = await res.json();
+        const m = data.metrics;
+
+        const activeInstEl = document.getElementById('sys-active-inst');
+        if (activeInstEl) activeInstEl.innerText = data.active_instances !== undefined ? data.active_instances : "N/A";
+
+        const uptimeEl = document.getElementById('sys-uptime');
+        if (uptimeEl) uptimeEl.innerText = (m && m.uptime) ? (m.uptime / 3600).toFixed(1) + " hours" : "N/A";
+
+        const kernelEl = document.getElementById('sys-kernel');
+        if (kernelEl && m && m.kernel) kernelEl.innerText = m.kernel;
+
+        if (!m) {
+            console.warn("No metrics data received");
+            if (init) {
+                document.querySelectorAll('.view#system .card').forEach(c => {
+                    if (!c.querySelector('.error-msg')) {
+                        c.innerHTML += '<p class="error-msg" style="color:var(--warning);font-size:0.7rem;margin-top:10px;">Metrics temporarily unavailable.</p>';
+                    }
+                });
+            }
+            return;
+        }
+
+        if (!window.Chart) {
+            if (init) {
+                document.querySelectorAll('.view#system .card').forEach(c => {
+                    if (!c.querySelector('.error-msg')) {
+                        c.innerHTML += '<p class="error-msg" style="color:var(--danger);font-size:0.7rem;margin-top:10px;">Monitoring component missing.</p>';
+                    }
+                });
+            }
+            return;
+        }
+
+        if (init || !charts.cpu || !document.getElementById('cpuChart')) initCharts(m);
+        else updateCharts(m);
+
+    } catch (e) {
+        console.error("Host metrics failed:", e);
+        if (init) {
+            const activeInstEl = document.getElementById('sys-active-inst');
+            if (activeInstEl) activeInstEl.innerText = "N/A";
+            const uptimeEl = document.getElementById('sys-uptime');
+            if (uptimeEl) uptimeEl.innerText = "Unavailable";
+        }
+    }
+}
+
+function initCharts(m) {
+    // Destroy existing charts to prevent "blank" or "overlapping" issues
+    Object.keys(charts).forEach(key => {
+        if (charts[key] && typeof charts[key].destroy === 'function') charts[key].destroy();
+    });
+
+    const cpuCanvas = document.getElementById('cpuChart');
+    if (!cpuCanvas) return;
+    const ctxCpu = cpuCanvas.getContext('2d');
+    charts.cpu = new Chart(ctxCpu, {
+        type: 'line',
+        data: { labels: Array(10).fill(''), datasets: [{ label: 'CPU %', data: Array(10).fill(0), borderColor: '#673de6', tension: 0.4 }] },
+        options: { animation: false, scales: { y: { min: 0, max: 100 } } }
+    });
+
+    const ctxRam = document.getElementById('ramChart').getContext('2d');
+    charts.ram = new Chart(ctxRam, {
+        type: 'doughnut',
+        data: { labels: ['Used', 'Free'], datasets: [{ data: [m.mem_used, m.mem_total - m.mem_used], backgroundColor: ['#673de6', '#f3f4f6'] }] },
+        options: { animation: false }
+    });
+
+    const ctxDisk = document.getElementById('diskChart').getContext('2d');
+    charts.disk = new Chart(ctxDisk, {
+        type: 'pie',
+        data: { labels: ['Used', 'Free'], datasets: [{ data: [m.disk_used, m.disk_total - m.disk_used], backgroundColor: ['#ef4444', '#f3f4f6'] }] },
+        options: { animation: false }
+    });
+
+    const ctxNet = document.getElementById('netChart').getContext('2d');
+    charts.net = new Chart(ctxNet, {
+        type: 'line',
+        data: { labels: Array(10).fill(''), datasets: [
+            { label: 'Recv', data: Array(10).fill(0), borderColor: '#10b981' },
+            { label: 'Sent', data: Array(10).fill(0), borderColor: '#f59e0b' }
+        ] },
+        options: { animation: false }
+    });
+    charts.lastNet = { r: m.net_recv, s: m.net_sent, t: Date.now() };
+}
+
+function updateCharts(m) {
+    // Update CPU
+    charts.cpu.data.datasets[0].data.push(m.cpu_usage);
+    charts.cpu.data.datasets[0].data.shift();
+    charts.cpu.update();
+
+    // Update RAM
+    charts.ram.data.datasets[0].data = [m.mem_used, m.mem_total - m.mem_used];
+    charts.ram.update();
+
+    // Update Disk
+    charts.disk.data.datasets[0].data = [m.disk_used, m.disk_total - m.disk_used];
+    charts.disk.update();
+
+    // Update Network
+    const now = Date.now();
+    const dt = (now - charts.lastNet.t) / 1000;
+    const rx = (m.net_recv - charts.lastNet.r) / 1024 / dt;
+    const tx = (m.net_sent - charts.lastNet.s) / 1024 / dt;
+
+    charts.net.data.datasets[0].data.push(rx);
+    charts.net.data.datasets[0].data.shift();
+    charts.net.data.datasets[1].data.push(tx);
+    charts.net.data.datasets[1].data.shift();
+    charts.net.update();
+
+    charts.lastNet = { r: m.net_recv, s: m.net_sent, t: now };
 }
 
 function showAddImageForm(show = true) {

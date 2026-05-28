@@ -149,17 +149,19 @@ func (a *API) deployInstance(c *gin.Context) {
 		CPUs     uint   `json:"cpus"`
 		MemoryMB uint   `json:"memory_mb"`
 		DiskGB   uint   `json:"disk_gb"`
+		Type     string `json:"type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	opts := kvm.DeployOptions{
-		User:     req.User,
-		Password: req.Password,
-		CPUs:     req.CPUs,
-		MemoryMB: req.MemoryMB,
-		DiskGB:   req.DiskGB,
+		User:         req.User,
+		Password:     req.Password,
+		CPUs:         req.CPUs,
+		MemoryMB:     req.MemoryMB,
+		DiskGB:       req.DiskGB,
+		InstanceType: req.Type,
 	}
 	if err := a.manager.Deploy(req.Name, req.Image, opts); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -288,10 +290,24 @@ func (a *API) runCommand(c *gin.Context) {
 }
 
 func (a *API) getMonitorData(c *gin.Context) {
+	metrics, err := kvm.GetHostMetrics()
+	if err != nil {
+		// Log the error and return empty structure to keep UI alive
+		metrics = kvm.HostMetrics{}
+	}
+
+	instances, _ := a.manager.List()
+
+	active := 0
+	for _, inst := range instances {
+		if inst.Status == "running" {
+			active++
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"cpu":              7.4,
-		"ram":              4096,
-		"active_instances": 2,
+		"metrics":          metrics,
+		"active_instances": active,
 	})
 }
 
@@ -366,7 +382,7 @@ func (a *API) addImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := a.manager.AddImage(req.Name, req.URL); err != nil {
+	if err := a.manager.AddImage(req.Name, req.URL, req.Type); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -383,12 +399,27 @@ func (a *API) renameImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	oldPath := filepath.Join(kvm.ImagesDir, req.OldName)
-	newPath := filepath.Join(kvm.ImagesDir, req.NewName)
-	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
-		oldPath += ".qcow2"
-		newPath += ".qcow2"
+
+	// Try common extensions
+	exts := []string{"", ".qcow2", ".lxd"}
+	found := false
+	var oldPath, newPath string
+
+	for _, ext := range exts {
+		p := filepath.Join(kvm.ImagesDir, req.OldName+ext)
+		if _, err := os.Stat(p); err == nil {
+			oldPath = p
+			newPath = filepath.Join(kvm.ImagesDir, req.NewName+ext)
+			found = true
+			break
+		}
 	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Image file not found"})
+		return
+	}
+
 	if err := os.Rename(oldPath, newPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

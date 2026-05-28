@@ -90,9 +90,11 @@ func ListImages() ([]ImageInfo, error) {
 
 		imgType := "vm"
 		name := entry.Name()
-		if strings.HasSuffix(name, ".docker") {
+		if strings.HasSuffix(name, ".lxd") {
 			imgType = "container"
-			name = strings.TrimSuffix(name, ".docker")
+			name = strings.TrimSuffix(name, ".lxd")
+		} else if strings.HasSuffix(name, ".qcow2") {
+			name = strings.TrimSuffix(name, ".qcow2")
 		}
 
 		images = append(images, ImageInfo{
