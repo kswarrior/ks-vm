@@ -211,6 +211,36 @@ function selectImage(name) {
     document.getElementById('image-dropdown').style.display = 'none';
 }
 
+function toggleDeployFields() {
+    const type = document.getElementById('deploy-type').value;
+    const note = document.getElementById('lxd-deploy-note');
+    if (type === 'container') {
+        note.style.display = 'block';
+    } else {
+        note.style.display = 'none';
+    }
+}
+
+function toggleAddImgFields() {
+    const type = document.getElementById('img-type').value;
+    const nameLabel = document.getElementById('img-name-label');
+    const urlLabel = document.getElementById('img-url-label');
+    const help = document.getElementById('img-help');
+    const urlInput = document.getElementById('img-url');
+
+    if (type === 'container') {
+        nameLabel.innerText = "LXD Image Alias";
+        urlLabel.innerText = "LXD Source (Format: ubuntu:24.04)";
+        urlInput.placeholder = "e.g. ubuntu:24.04 or images:debian/12";
+        help.innerText = "This will register an alias in the LXD image store.";
+    } else {
+        nameLabel.innerText = "Image Label";
+        urlLabel.innerText = "Source URL (QCOW2)";
+        urlInput.placeholder = "https://cloud-images.ubuntu.com/...";
+        help.innerText = "";
+    }
+}
+
 async function deployInstance() {
     const btn = document.querySelector('#deploy .btn-primary');
     const oldText = btn.innerText;

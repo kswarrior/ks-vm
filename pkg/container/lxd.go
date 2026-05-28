@@ -138,21 +138,22 @@ func (c *LXDClient) ensureImage(image string) error {
 	// 3. Pull image
 	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, sourceURL, imgName)
 
-	body := map[string]interface{}{
-		"source": map[string]string{
-			"type":   sourceType,
-			"url":    sourceURL,
-			"alias":  imgName, // simplestreams often expects 'alias' instead of 'name' in some versions
-		},
-		"aliases": []map[string]interface{}{
-			{"name": image},
-		},
-		"public": false,
+	source := map[string]string{
+		"type":   sourceType,
+		"url":    sourceURL,
 	}
 
-	// Double check: if it's linuxcontainers.org, it might need 'name' instead
-	if strings.Contains(sourceURL, "linuxcontainers.org") {
-		body["source"].(map[string]string)["name"] = imgName
+	// Double check: if it's cloud-images, it definitely needs 'name'
+	if strings.Contains(sourceURL, "cloud-images.ubuntu.com") || strings.Contains(sourceURL, "linuxcontainers.org") {
+		source["name"] = imgName
+	} else {
+		source["alias"] = imgName
+	}
+
+	body := map[string]interface{}{
+		"source":  source,
+		"aliases": []map[string]interface{}{{"name": image}},
+		"public":  false,
 	}
 	resp, err = c.do("POST", "/1.0/images", body)
 	if err != nil {

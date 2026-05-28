@@ -101,17 +101,20 @@
                         <div class="form-group"><label>Instance Name</label><input type="text" id="deploy-name" placeholder="e.g. web-server-01"></div>
                         <div class="form-group">
                             <label>Instance Type</label>
-                            <select id="deploy-type">
+                            <select id="deploy-type" onchange="toggleDeployFields()">
                                 <option value="vm">Virtual Machine (KVM)</option>
                                 <option value="container">LXD Container</option>
                             </select>
                         </div>
                     </div>
-                    <div class="form-group" style="position:relative;">
+                    <div id="deploy-image-section" class="form-group" style="position:relative;">
                         <label>Select Operating System</label>
                         <input type="text" id="image-search" placeholder="Search OS images..." onkeyup="filterImages()">
                         <div id="image-dropdown" class="dropdown" style="width:100%; top:100%; left:0;"></div>
                         <input type="hidden" id="deploy-image">
+                    </div>
+                    <div id="lxd-deploy-note" class="form-group" style="display:none; color:var(--text-muted); font-size:0.8rem; margin-top:-10px; margin-bottom:15px;">
+                        Note: For LXD, you can also type an alias like <b>ubuntu:24.04</b> in the search box if not in pool.
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>vCPU Cores</label><input type="number" id="deploy-cpu" value="1"></div>
@@ -181,16 +184,23 @@
                     <h1 style="font-size: 1.75rem; font-weight: 800;">Add OS Image</h1>
                 </div>
                 <div class="card" style="max-width: 600px;">
-                    <div class="form-group"><label>Image Name</label><input type="text" id="img-name" placeholder="e.g. Ubuntu 24.04"></div>
-                    <div class="form-group"><label>Source URL (QCOW2 or LXD Alias)</label><input type="text" id="img-url" placeholder="https://... or ubuntu:24.04"></div>
                     <div class="form-group">
-                        <label>Type</label>
-                        <select id="img-type">
+                        <label>Architecture / Type</label>
+                        <select id="img-type" onchange="toggleAddImgFields()">
                             <option value="vm">Virtual Machine (KVM)</option>
                             <option value="container">LXD Container</option>
                         </select>
                     </div>
-                    <div style="display:flex; gap:12px;">
+                    <div class="form-group">
+                        <label id="img-name-label">Image Label</label>
+                        <input type="text" id="img-name" placeholder="e.g. Ubuntu 24.04 LTS">
+                    </div>
+                    <div class="form-group">
+                        <label id="img-url-label">Source URL (QCOW2)</label>
+                        <input type="text" id="img-url" placeholder="https://cloud-images.ubuntu.com/...">
+                        <small id="img-help" style="display:block; margin-top:5px; color:var(--text-muted);"></small>
+                    </div>
+                    <div style="display:flex; gap:12px; margin-top:20px;">
                         <button class="btn btn-primary" onclick="addImage()">Add Image Now</button>
                         <button class="btn btn-outline" onclick="showTab('images')">Cancel</button>
                     </div>
