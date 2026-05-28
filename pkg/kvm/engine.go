@@ -89,8 +89,8 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		isVM = true
 	}
 
-	if !isVM && opts.InstanceType == "" {
-		// Try to find image in pool if no type specified
+	if !isVM {
+		// Image resolution for either implicit or explicit types
 		paths := []string{
 			filepath.Join(ImagesDir, baseImage),
 			filepath.Join(ImagesDir, baseImage+".qcow2"),
@@ -104,19 +104,9 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		}
 	}
 
-	if isVM && imagePath == "" {
-		// Check in ImagesDir
-		paths := []string{
-			filepath.Join(ImagesDir, baseImage),
-			filepath.Join(ImagesDir, baseImage+".qcow2"),
-		}
-		for _, p := range paths {
-			if _, err := os.Stat(p); err == nil {
-				imagePath = p
-				isVM = true
-				break
-			}
-		}
+	if isVM && imagePath == "" && opts.InstanceType == "vm" {
+		// Explicitly requested VM but image not found
+		return fmt.Errorf("base VM image %s not found in image pool", baseImage)
 	}
 
 	if !isVM {
