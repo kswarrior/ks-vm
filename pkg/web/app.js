@@ -68,11 +68,13 @@ async function fetchInstances(animate = false) {
 
         data.forEach(vm => {
             const card = document.createElement('div');
+            card.id = `card-${vm.Name}`;
             card.className = 'card instance-card' + (animate ? ' animate-in' : '');
 
             if (vm.Status === 'deploying') {
                 const overlay = document.createElement('div');
                 overlay.className = 'overlay';
+                overlay.id = `deploy-overlay-${vm.Name}`;
                 overlay.innerText = 'DEPLOYING...';
                 card.appendChild(overlay);
             }
@@ -247,8 +249,9 @@ async function deployInstance() {
     btn.innerText = "DEPLOYING...";
     btn.disabled = true;
 
+    const name = document.getElementById('deploy-name').value;
     const data = {
-        name: document.getElementById('deploy-name').value,
+        name: name,
         image: document.getElementById('deploy-image').value || document.getElementById('image-search').value,
         type: document.getElementById('deploy-type').value,
         cpus: parseInt(document.getElementById('deploy-cpu').value),
@@ -269,6 +272,9 @@ async function deployInstance() {
         else {
             alert("Deployment Error: " + (result.error || "Unknown error"));
             console.error("Deploy failed:", result);
+            // Cleanup UI if we were tracking it
+            const overlay = document.getElementById(`deploy-overlay-${name}`);
+            if (overlay) overlay.remove();
         }
     } catch (e) {
         alert("Deployment failed: " + e.message);

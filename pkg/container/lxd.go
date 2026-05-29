@@ -42,11 +42,15 @@ func NewLXDClient() *LXDClient {
 }
 
 func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, error) {
-	var bodyReader bytes.Buffer
+	var bodyReader io.Reader
 	if body != nil {
-		json.NewEncoder(&bodyReader).Encode(body)
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = bytes.NewReader(data)
 	}
-	req, err := http.NewRequest(method, "http://lxd"+path, &bodyReader)
+	req, err := http.NewRequest(method, "http://lxd"+path, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -125,30 +129,31 @@ func (c *LXDClient) ensureImage(image string) error {
 	}
 
 	// 2. Resolve image source
-	sourceURL := "https://images.linuxcontainers.org"
+	serverURL := "https://images.linuxcontainers.org"
 	imgName := image
-	sourceType := "simplestreams"
+	protocol := "simplestreams"
 
 	if strings.Contains(image, ":") {
 		parts := strings.Split(image, ":")
 		if parts[0] == "ubuntu" {
 			// Official Ubuntu images use specific streams
-			sourceURL = "https://cloud-images.ubuntu.com/releases"
+			serverURL = "https://cloud-images.ubuntu.com/releases"
+			imgName = parts[1]
+		} else if parts[0] == "images" {
 			imgName = parts[1]
 		}
 	}
 
 	// 3. Pull image
-	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, sourceURL, imgName)
+	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, serverURL, imgName)
 
 	source := map[string]string{
-		"type": sourceType,
-		"url":  sourceURL,
-		"mode": "pull",
+		"type":     "image",
+		"mode":     "pull",
+		"server":   serverURL,
+		"protocol": protocol,
+		"alias":    imgName,
 	}
-
-	// For simplestreams, we use 'alias' to specify the image version/name
-	source["alias"] = imgName
 
 	body := map[string]interface{}{
 		"source":  source,
