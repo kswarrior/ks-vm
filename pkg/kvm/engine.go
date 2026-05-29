@@ -83,6 +83,8 @@ type DeployOptions struct {
 // Deploy creates a new VM or Container instance.
 func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	m.setDeployingStatus(name)
+	defer m.clearDeployingStatus(name)
+
 	// 1. Image Type Detection & Resolution
 	var imagePath string
 	isVM := false
@@ -231,8 +233,6 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	deployed = true
-	m.clearDeployingStatus(name)
-
 	return nil
 }
 
@@ -262,7 +262,6 @@ func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error 
 	metaData, _ := json.Marshal(meta)
 	os.WriteFile(m.instancePath(name, "meta.json"), metaData, 0600)
 
-	m.clearDeployingStatus(name)
 	return nil
 }
 

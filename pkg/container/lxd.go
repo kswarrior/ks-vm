@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -67,11 +68,13 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 			ErrorCode int    `json:"error_code"`
 			ErrorType string `json:"error_type"`
 		}
-		json.NewDecoder(resp.Body).Decode(&errData)
+		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		json.Unmarshal(body, &errData)
+
 		errMsg := errData.Error
 		if errMsg == "" {
-			errMsg = fmt.Sprintf("status %d", resp.StatusCode)
+			errMsg = fmt.Sprintf("status %d: %s", resp.StatusCode, string(body))
 		}
 		return nil, fmt.Errorf("LXD error: %s", errMsg)
 	}
@@ -139,16 +142,13 @@ func (c *LXDClient) ensureImage(image string) error {
 	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, sourceURL, imgName)
 
 	source := map[string]string{
-		"type":   sourceType,
-		"url":    sourceURL,
+		"type": sourceType,
+		"url":  sourceURL,
+		"mode": "pull",
 	}
 
-	// Double check: if it's cloud-images, it definitely needs 'name'
-	if strings.Contains(sourceURL, "cloud-images.ubuntu.com") || strings.Contains(sourceURL, "linuxcontainers.org") {
-		source["name"] = imgName
-	} else {
-		source["alias"] = imgName
-	}
+	// For simplestreams, we use 'alias' to specify the image version/name
+	source["alias"] = imgName
 
 	body := map[string]interface{}{
 		"source":  source,
