@@ -113,7 +113,7 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		}
 	}
 
-	if !isVM {
+	if opts.InstanceType == "" && !isVM {
 		// Image resolution for either implicit or explicit types
 		paths := []string{
 			filepath.Join(ImagesDir, baseImage),
@@ -155,11 +155,24 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
 	}
 
-	// 3. Ensure instances directory exists
+	// 3. Ensure instances directory exists and write metadata early
 	instancesDir := m.instancePath(name)
 	if err := os.MkdirAll(instancesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create instances directory: %v", err)
 	}
+
+	// Always save type to meta.json early for identification
+	meta := map[string]string{
+		"type": "vm",
+	}
+	if opts.User != "" {
+		meta["user"] = opts.User
+	}
+	if opts.Password != "" {
+		meta["password"] = opts.Password
+	}
+	metaData, _ := json.Marshal(meta)
+	os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 
 	// Cleanup on failure
 	deployed := false
@@ -188,15 +201,6 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 			return err
 		}
 		configDrivePath = iso
-
-		// Save credentials and type to meta.json
-		meta := map[string]string{
-			"user":     opts.User,
-			"password": opts.Password,
-			"type":     "vm",
-		}
-		metaData, _ := json.Marshal(meta)
-		os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 	}
 
 	// 6. Generate XML
