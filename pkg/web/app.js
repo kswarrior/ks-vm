@@ -1,5 +1,17 @@
 let allImages = [];
 
+function toast(msg, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.innerText = msg;
+    container.appendChild(el);
+    setTimeout(() => {
+        el.classList.add('toast-fade-out');
+        setTimeout(() => el.remove(), 300);
+    }, 4000);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const tabs = document.querySelectorAll('.nav-item, .icon-nav-item');
     tabs.forEach(tab => {
@@ -64,20 +76,28 @@ async function fetchInstances(animate = false) {
         const res = await fetch('/api/v1/instances');
         const data = await res.json();
         const listContainer = document.getElementById('instance-list');
-        listContainer.innerHTML = '';
+
+        // Identify instances to remove
+        const newNames = data.map(vm => vm.Name);
+        const currentCards = listContainer.querySelectorAll('.instance-card');
+        currentCards.forEach(card => {
+            const name = card.id.replace('card-', '');
+            if (!newNames.includes(name) && !card.dataset.optimistic) card.remove();
+        });
 
         data.forEach(vm => {
-            const card = document.createElement('div');
-            card.id = `card-${vm.Name}`;
-            card.className = 'card instance-card' + (animate ? ' animate-in' : '');
+            let card = document.getElementById(`card-${vm.Name}`);
+            const isNew = !card;
 
-            if (vm.Status === 'deploying') {
-                const overlay = document.createElement('div');
-                overlay.className = 'overlay';
-                overlay.id = `deploy-overlay-${vm.Name}`;
-                overlay.innerText = 'DEPLOYING...';
-                card.appendChild(overlay);
+            if (isNew) {
+                card = document.createElement('div');
+                card.id = `card-${vm.Name}`;
+                card.className = 'card instance-card' + (animate ? ' animate-in' : '');
+                listContainer.appendChild(card);
             }
+
+            // Skip update if user is interacting with dropdown
+            if (card.querySelector('.dropdown.show')) return;
 
             const statusText = vm.Status || 'unknown';
             const statusClass = `status-${statusText}`;
@@ -95,7 +115,8 @@ async function fetchInstances(animate = false) {
 
             const primaryIP = (vm.IPs && vm.IPs.length > 0) ? vm.IPs[0] : 'N/A';
 
-            card.innerHTML += `
+            card.innerHTML = `
+                ${vm.Status === 'deploying' ? `<div class="overlay" id="deploy-overlay-${vm.Name}">DEPLOYING...</div>` : ''}
                 <div class="instance-header">
                     <div style="display:flex; align-items:center; gap:12px;">
                         <div class="instance-icon">
@@ -246,20 +267,39 @@ function toggleAddImgFields() {
 async function deployInstance() {
     const btn = document.querySelector('#deploy .btn-primary');
     const oldText = btn.innerText;
-    btn.innerText = "DEPLOYING...";
+    btn.innerText = "STARTING...";
     btn.disabled = true;
 
     const name = document.getElementById('deploy-name').value;
+    const type = document.getElementById('deploy-type').value;
     const data = {
         name: name,
         image: document.getElementById('deploy-image').value || document.getElementById('image-search').value,
-        type: document.getElementById('deploy-type').value,
+        type: type,
         cpus: parseInt(document.getElementById('deploy-cpu').value),
         memory_mb: parseInt(document.getElementById('deploy-ram').value),
         disk_gb: parseInt(document.getElementById('deploy-disk').value),
         user: document.getElementById('deploy-user').value,
         password: document.getElementById('deploy-pass').value
     };
+
+    // Optimistic Deploy Card
+    const listContainer = document.getElementById('instance-list');
+    const optCard = document.createElement('div');
+    optCard.id = `card-${name}`;
+    optCard.className = 'card instance-card animate-in';
+    optCard.dataset.optimistic = "true";
+    optCard.innerHTML = `
+        <div class="overlay">INITIATING...</div>
+        <div class="instance-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div class="instance-icon">${type === 'container' ? 'LXD' : 'VM'}</div>
+                <div><div class="instance-title">${name}</div><div class="instance-status status-processing">PREPARING</div></div>
+            </div>
+        </div>
+    `;
+    listContainer.prepend(optCard);
+    showTab('instances');
 
     try {
         const res = await fetch('/api/v1/deploy', {
@@ -268,16 +308,16 @@ async function deployInstance() {
             body: JSON.stringify(data)
         });
         const result = await res.json();
-        if (res.ok) showTab('instances');
-        else {
-            alert("Deployment Error: " + (result.error || "Unknown error"));
-            console.error("Deploy failed:", result);
-            // Cleanup UI if we were tracking it
-            const overlay = document.getElementById(`deploy-overlay-${name}`);
-            if (overlay) overlay.remove();
+        if (!res.ok) {
+            toast(result.error || "Deployment failed", 'error');
+            optCard.remove();
+        } else {
+            toast("Deployment started", 'success');
+            delete optCard.dataset.optimistic;
         }
     } catch (e) {
-        alert("Deployment failed: " + e.message);
+        toast("Network error", 'error');
+        optCard.remove();
     } finally {
         btn.innerText = oldText;
         btn.disabled = false;
@@ -316,7 +356,37 @@ async function updateInstance() {
 
 async function action(type, name) {
     if (type === 'delete' && !confirm(`Are you sure you want to delete ${name}?`)) return;
-    await fetch(`/api/v1/${type}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
+
+    // Optimistic UI
+    const card = document.getElementById(`card-${name}`);
+    let oldStatus = '';
+    if (card) {
+        const statusEl = card.querySelector('.instance-status');
+        oldStatus = statusEl.innerText;
+        statusEl.innerText = type === 'delete' ? 'DELETING...' : 'PROCESSING...';
+        statusEl.className = 'instance-status status-processing';
+    }
+
+    try {
+        const res = await fetch(`/api/v1/${type}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            toast(`${name}: ${type} success`, 'success');
+            if (type === 'delete') {
+                if (card) card.style.opacity = '0.5';
+            }
+        } else {
+            toast(data.error || "Operation failed", 'error');
+            // Revert on error
+            if (card) {
+                const statusEl = card.querySelector('.instance-status');
+                statusEl.innerText = oldStatus;
+                statusEl.className = `instance-status status-${oldStatus.toLowerCase()}`;
+            }
+        }
+    } catch (e) {
+        toast("Network error", 'error');
+    }
     fetchInstances();
 }
 
@@ -352,18 +422,30 @@ function openExec(name) {
 
 async function runExec() {
     const name = document.getElementById('exec-title').innerText.split(': ')[1];
-    const cmd = document.getElementById('exec-command').value;
+    const input = document.getElementById('exec-command');
+    const cmd = input.value;
     const output = document.getElementById('exec-output');
-    output.innerText += "> " + cmd + "\n";
+    if (!cmd) return;
 
-    const res = await fetch(`/api/v1/exec/${name}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd })
-    });
-    const data = await res.json();
-    if (data.output) output.innerText += data.output + "\n";
-    if (data.error) output.innerText += "Error: " + data.error + "\n";
+    output.innerText += "> " + cmd + "\n[RUNNING...]\n";
+    input.value = "";
+    output.scrollTop = output.scrollHeight;
+
+    try {
+        const res = await fetch(`/api/v1/exec/${name}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: cmd })
+        });
+        const data = await res.json();
+        // Remove the [RUNNING...] line
+        output.innerText = output.innerText.replace("[RUNNING...]\n", "");
+        if (data.output) output.innerText += data.output + "\n";
+        if (data.error) output.innerText += "ERROR: " + data.error + "\n";
+    } catch (e) {
+        output.innerText = output.innerText.replace("[RUNNING...]\n", "");
+        output.innerText += "FETCH FAILED: " + e.message + "\n";
+    }
     output.scrollTop = output.scrollHeight;
 }
 
@@ -540,18 +622,28 @@ async function addImage() {
 
 async function removeImage(name) {
     if (!confirm(`Remove image ${name}?`)) return;
-    await fetch(`/api/v1/images/${name}`, { method: 'DELETE' });
+    toast(`Removing image ${name}...`);
+    try {
+        const res = await fetch(`/api/v1/images/${name}`, { method: 'DELETE' });
+        if (res.ok) toast("Image removed", 'success');
+        else toast("Failed to remove image", 'error');
+    } catch (e) { toast("Network error", 'error'); }
     fetchImages();
 }
 
 async function renameImage(name) {
     const newName = prompt("New name for " + name, name);
     if (!newName) return;
-    await fetch('/api/v1/images/rename', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ old_name: name, new_name: newName })
-    });
+    toast(`Renaming ${name} to ${newName}...`);
+    try {
+        const res = await fetch('/api/v1/images/rename', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_name: name, new_name: newName })
+        });
+        if (res.ok) toast("Image renamed", 'success');
+        else toast("Rename failed", 'error');
+    } catch (e) { toast("Network error", 'error'); }
     fetchImages();
 }
 
