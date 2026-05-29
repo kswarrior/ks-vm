@@ -152,7 +152,7 @@ func (c *LXDClient) ensureImage(image string) error {
 		"mode":     "pull",
 		"server":   serverURL,
 		"protocol": protocol,
-		"alias":    imgName,
+		"name":     imgName,
 	}
 
 	body := map[string]interface{}{

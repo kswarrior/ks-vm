@@ -519,16 +519,30 @@ func (m *Manager) Restart(name string) error {
 
 // Exec runs a non-interactive command inside the guest.
 func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		// Try LXD
+	// 1. Determine instance type from metadata
+	instType := "vm"
+	if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
+		var meta map[string]string
+		if err := json.Unmarshal(data, &meta); err == nil {
+			if t, ok := meta["type"]; ok {
+				instType = t
+			}
+		}
+	}
+
+	if instType == "container" {
 		if running, _ := m.isContainerRunning(name); running {
-			fullCmd := strings.Join(cmdArgs, " ")
-			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
+			args := append([]string{"exec", name, "--"}, cmdArgs...)
+			cmd := exec.Command("lxc", args...)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
-		return "", fmt.Errorf("instance %s not found or not running", name)
+		return "", fmt.Errorf("container %s is not running", name)
+	}
+
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return "", fmt.Errorf("instance %s not found: %v", name, err)
 	}
 
 	execCmd := map[string]interface{}{
@@ -600,7 +614,9 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	}
 	pid := startResult.Return.PID
 
-	for {
+	// Wait with timeout
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
 		statusCmd := map[string]interface{}{
 			"execute":   "guest-exec-status",
 			"arguments": map[string]interface{}{"pid": pid},
@@ -637,6 +653,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	return "", fmt.Errorf("command timed out after 60s")
 }
 
 // Copy transfers a file from host to guest.
