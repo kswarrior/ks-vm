@@ -113,7 +113,12 @@ func ListImages() ([]ImageInfo, error) {
 func RemoveImage(name string) error {
 	path := filepath.Join(ImagesDir, name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// Try VM extension
 		path = filepath.Join(ImagesDir, name+".qcow2")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			// Try Container extension
+			path = filepath.Join(ImagesDir, name+".lxd")
+		}
 	}
 
 	return os.Remove(path)

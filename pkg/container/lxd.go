@@ -250,9 +250,17 @@ func (c *LXDClient) ControlContainer(name, action string) error {
 		lxdAction = "restart"
 	case "delete":
 		// LXD requires instance to be stopped before deletion
-		c.do("PUT", "/1.0/instances/"+name+"/state", map[string]string{"action": "stop", "force": "true"})
+		resp, err := c.do("PUT", "/1.0/instances/"+name+"/state", map[string]string{"action": "stop", "force": "true"})
+		if err == nil {
+			var opData struct {
+				Operation string `json:"operation"`
+			}
+			json.NewDecoder(resp.Body).Decode(&opData)
+			resp.Body.Close()
+			c.waitForOperation(opData.Operation)
+		}
 
-		resp, err := c.do("DELETE", "/1.0/instances/"+name, nil)
+		resp, err = c.do("DELETE", "/1.0/instances/"+name, nil)
 		if err != nil {
 			return err
 		}

@@ -36,6 +36,14 @@ type Manager struct {
 	statsMu  sync.RWMutex
 }
 
+func (m *Manager) instancePath(name string, sub ...string) string {
+	base := filepath.Join(BaseDir, "instances", name)
+	if len(sub) > 0 {
+		return filepath.Join(append([]string{base}, sub...)...)
+	}
+	return base
+}
+
 // NewManager creates a new Manager and connects to the local libvirt and LXD daemons.
 func NewManager() (*Manager, error) {
 	uri := os.Getenv("LIBVIRT_DEFAULT_URI")
@@ -89,6 +97,20 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		isVM = true
 	}
 
+	if isVM && imagePath == "" {
+		// Resolve VM image path from pool
+		paths := []string{
+			filepath.Join(ImagesDir, baseImage),
+			filepath.Join(ImagesDir, baseImage+".qcow2"),
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				imagePath = p
+				break
+			}
+		}
+	}
+
 	if !isVM {
 		// Image resolution for either implicit or explicit types
 		paths := []string{
@@ -132,7 +154,7 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	// 3. Ensure instances directory exists
-	instancesDir := filepath.Join(BaseDir, "instances", name)
+	instancesDir := m.instancePath(name)
 	if err := os.MkdirAll(instancesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create instances directory: %v", err)
 	}
@@ -232,13 +254,13 @@ func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error 
 	}
 
 	// Save type to meta.json
-	instancesDir := filepath.Join(BaseDir, "instances", name)
+	instancesDir := m.instancePath(name)
 	os.MkdirAll(instancesDir, 0755)
 	meta := map[string]string{
 		"type": "container",
 	}
 	metaData, _ := json.Marshal(meta)
-	os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
+	os.WriteFile(m.instancePath(name, "meta.json"), metaData, 0600)
 
 	m.clearDeployingStatus(name)
 	return nil
@@ -268,8 +290,7 @@ func (m *Manager) isDeploying(name string) bool {
 }
 
 func (m *Manager) updateContainerStatus(name, status string) {
-	destDir := filepath.Join(BaseDir, "containers", name)
-	metaPath := filepath.Join(destDir, "meta.json")
+	metaPath := m.instancePath(name, "meta.json")
 	metaData, err := os.ReadFile(metaPath)
 	if err == nil {
 		var meta map[string]interface{}
@@ -397,12 +418,12 @@ func (m *Manager) Delete(name string) error {
 		if err := domain.Undefine(); err != nil {
 			return err
 		}
-		return os.RemoveAll(filepath.Join(BaseDir, "instances", name))
+		return os.RemoveAll(m.instancePath(name))
 	}
 
 	// Try LXD
 	if err := m.lxd.ControlContainer(name, "delete"); err == nil {
-		return nil
+		return os.RemoveAll(m.instancePath(name))
 	}
 
 	return fmt.Errorf("instance %s not found", name)
@@ -485,7 +506,7 @@ func (m *Manager) Restart(name string) error {
 		return nil
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", name)
+	destDir := m.instancePath(name)
 	if _, err := os.Stat(destDir); err == nil {
 		m.Stop(name)
 		return m.Launch(name)
@@ -619,7 +640,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 func (m *Manager) Copy(name, localPath, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		destDir := filepath.Join(BaseDir, "containers", name)
+		destDir := m.instancePath(name)
 		if _, err := os.Stat(destDir); err == nil {
 			target := filepath.Join(destDir, "rootfs", guestPath)
 			src, err := os.Open(localPath)
@@ -836,6 +857,14 @@ func (m *Manager) Purge() error {
 			domain.Undefine()
 		}
 	}
+
+	// Containers from LXD
+	if containers, err := m.lxd.ListContainers(); err == nil {
+		for _, name := range containers {
+			m.lxd.ControlContainer(name, "delete")
+		}
+	}
+
 	return os.RemoveAll(BaseDir)
 }
 
@@ -860,7 +889,7 @@ func (m *Manager) Version() (*VersionInfo, error) {
 func (m *Manager) Info(name string) (*VMInfo, error) {
 	// 1. Determine instance type from metadata
 	instType := "vm"
-	if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+	if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
 		var meta map[string]string
 		if err := json.Unmarshal(data, &meta); err == nil {
 			if t, ok := meta["type"]; ok {
@@ -919,7 +948,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			}
 		}
 		var diskUsage int64
-		fi, err := os.Stat(filepath.Join(BaseDir, "instances", name, "disk.qcow2"))
+		fi, err := os.Stat(m.instancePath(name, "disk.qcow2"))
 		if err == nil {
 			diskUsage = fi.Size()
 		}
@@ -960,7 +989,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 
 		// Load Credentials
 		user, pass := "", ""
-		if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+		if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
 			var meta map[string]string
 			if err := json.Unmarshal(data, &meta); err == nil {
 				user = meta["user"]
