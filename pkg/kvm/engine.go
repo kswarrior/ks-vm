@@ -479,9 +479,29 @@ func (m *Manager) SetupSSH(name string) (string, error) {
 		if err := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); err != nil {
 			return "", err
 		}
-		// Inject the command
+		// Inject the command with automated login
+		info, _ := m.Info(name)
+		user := info.User
+		pass := info.Password
+		if user == "" {
+			user = "ubuntu"
+		}
+
 		stream.Send([]byte("\n\n"))
 		time.Sleep(1 * time.Second)
+
+		// Read buffer to detect login prompt
+		buf := make([]byte, 4096)
+		n, _ := stream.Recv(buf)
+		output := string(buf[:n])
+
+		if strings.Contains(output, "login:") || strings.Contains(output, "username:") {
+			stream.Send([]byte(user + "\n"))
+			time.Sleep(500 * time.Millisecond)
+			stream.Send([]byte(pass + "\n"))
+			time.Sleep(1 * time.Second)
+		}
+
 		stream.Send([]byte(cmdStr + "\n"))
 		time.Sleep(1 * time.Second)
 
@@ -532,8 +552,9 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 
 	if instType == "container" {
 		if running, _ := m.isContainerRunning(name); running {
-			args := append([]string{"exec", name, "--"}, cmdArgs...)
-			cmd := exec.Command("lxc", args...)
+			// Standardize execution using /bin/sh -c to support complex command strings
+			fullCmd := strings.Join(cmdArgs, " ")
+			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
@@ -591,7 +612,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			}
 
 			stream.Send([]byte(fullCmd + "\n"))
-			time.Sleep(2 * time.Second)
+			time.Sleep(4 * time.Second)
 
 			n, _ = stream.Recv(buf)
 			res := string(buf[:n])
