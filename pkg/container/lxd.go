@@ -154,11 +154,7 @@ func (c *LXDClient) ensureImage(image string) error {
 		"protocol": protocol,
 	}
 
-	if protocol == "simplestreams" {
-		source["name"] = imgName
-	} else {
-		source["alias"] = imgName
-	}
+	source["alias"] = imgName
 
 	body := map[string]interface{}{
 		"source":  source,

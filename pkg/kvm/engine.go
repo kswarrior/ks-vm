@@ -552,9 +552,8 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 
 	if instType == "container" {
 		if running, _ := m.isContainerRunning(name); running {
-			// Standardize execution using /bin/sh -c to support complex command strings
-			fullCmd := strings.Join(cmdArgs, " ")
-			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
+			// standard execution using 'lxc exec <name> -- <cmd>'
+			cmd := exec.Command("lxc", append([]string{"exec", name, "--"}, cmdArgs...)...)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
@@ -577,7 +576,8 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	cmdJSON, _ := json.Marshal(execCmd)
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
 	if err != nil {
-		if strings.Contains(err.Error(), "Guest agent is not responding") || strings.Contains(err.Error(), "Guest agent is not configured") {
+		lowerErr := strings.ToLower(err.Error())
+		if strings.Contains(lowerErr, "guest agent") || strings.Contains(lowerErr, "not responding") || strings.Contains(lowerErr, "not configured") {
 			// Fallback to Serial Console Injection
 			stream, sErr := m.conn.NewStream(0)
 			if sErr != nil {

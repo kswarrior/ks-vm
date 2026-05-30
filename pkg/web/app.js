@@ -215,8 +215,13 @@ async function preloadImages() {
 
 function filterImages() {
     const query = document.getElementById('image-search').value.toLowerCase();
+    const type = document.getElementById('deploy-type').value;
     const dd = document.getElementById('image-dropdown');
-    const filtered = allImages.filter(img => img.Name.toLowerCase().includes(query));
+    const filtered = allImages.filter(img => {
+        const matchesQuery = img.Name.toLowerCase().includes(query);
+        const matchesType = img.Type === type;
+        return matchesQuery && matchesType;
+    });
 
     if (filtered.length > 0 && query.length > 0) {
         dd.style.display = 'block';
