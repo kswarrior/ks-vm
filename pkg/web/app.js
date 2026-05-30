@@ -396,25 +396,31 @@ async function action(type, name) {
 }
 
 async function getSSH(name) {
+    const url = prompt("Enter custom URL (leave empty for random):");
+    const port = prompt("Enter tunnel port:", "3030");
+
     const output = document.getElementById('exec-output');
     document.getElementById('exec-title').innerText = "SSH Setup: " + name;
-    output.innerText = "Initializing persistent SSH tunnel inside " + name + "...\n";
+    output.innerText = `Connecting to ${name} and running SSH setup...\n`;
     document.getElementById('exec-command').value = "";
     showTab('exec');
 
     try {
-        const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
+        const res = await fetch(`/api/v1/ssh/${name}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ port, url })
+        });
         const data = await res.json();
         if (res.ok) {
-            output.innerText += "\n--- SUCCESS ---\n";
+            output.innerText += "\n--- TUNNEL ESTABLISHED ---\n";
             output.innerText += "SSH Token: " + data.token + "\n";
-            output.innerText += "The tunnel is now running in the background of your VPS.\n";
-            output.innerText += "You can use this token at https://ks-ssh.pages.dev\n";
+            output.innerText += "Use this token at https://ks-ssh.pages.dev\n";
         } else {
-            output.innerText += "\n--- ERROR ---\n" + data.error + "\n";
+            output.innerText += "\n--- SETUP FAILED ---\n" + data.error + "\n";
         }
     } catch (e) {
-        output.innerText += "\n--- FETCH FAILED ---\n" + e.message + "\n";
+        output.innerText += "\n--- ERROR ---\n" + e.message + "\n";
     }
 }
 

@@ -457,10 +457,16 @@ func (m *Manager) RemoveImage(name string) error {
 }
 
 // SetupSSH initializes a reverse tunnel for SSH access inside the guest.
-func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use a double-nohup fork wrapper to ensure the process survives session exit
-	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
-	cmdStr := fmt.Sprintf("nohup sh -c 'nohup %s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
+func (m *Manager) SetupSSH(name string, port string, url string) (string, error) {
+	if port == "" {
+		port = "3030"
+	}
+	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port %s", port)
+	if url != "" {
+		script += fmt.Sprintf(" --url %s", url)
+	}
+
+	cmdStr := script
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -619,8 +625,27 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			if res == "" {
 				res = "(no output captured from console - command may still be running)"
 			}
-			res = strings.TrimPrefix(res, fullCmd)
-			return "Command injected via serial console. Output preview:\n" + strings.TrimSpace(res), nil
+
+			// Clean up output: remove command echo and common terminal artifacts
+			lines := strings.Split(res, "\n")
+			var filtered []string
+			for _, line := range lines {
+				line = strings.TrimRight(line, "\r")
+				if strings.Contains(line, fullCmd) || strings.Contains(line, "login:") || strings.Contains(line, "Password:") {
+					continue
+				}
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				filtered = append(filtered, line)
+			}
+
+			outputPreview := strings.Join(filtered, "\n")
+			if outputPreview == "" {
+				outputPreview = "(command executed, but no new output was captured)"
+			}
+
+			return "Command injected via serial console. Output preview:\n" + outputPreview, nil
 		}
 		return "", err
 	}

@@ -262,7 +262,16 @@ func (a *API) deleteInstance(c *gin.Context) {
 
 func (a *API) setupSSH(c *gin.Context) {
 	name := c.Param("name")
-	token, err := a.manager.SetupSSH(name)
+	var req struct {
+		Port string `json:"port"`
+		URL  string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Fallback for older clients or default behavior
+		req.Port = "3030"
+	}
+
+	token, err := a.manager.SetupSSH(name, req.Port, req.URL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
