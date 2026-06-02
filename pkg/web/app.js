@@ -395,34 +395,62 @@ async function action(type, name) {
     fetchInstances();
 }
 
+function openModal(title, bodyHTML, onConfirm) {
+    const overlay = document.getElementById('modal-overlay');
+    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-body').innerHTML = bodyHTML;
+    const confirmBtn = document.getElementById('modal-confirm');
+    confirmBtn.onclick = () => {
+        onConfirm();
+        closeModal();
+    };
+    overlay.style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('modal-overlay').style.display = 'none';
+}
+
 async function getSSH(name) {
-    const url = prompt("Enter custom URL (leave empty for random):");
-    const port = prompt("Enter tunnel port:", "3030");
+    const bodyHTML = `
+        <div class="form-group">
+            <label>Tunnel Subdomain (URL)</label>
+            <input type="text" id="ssh-url" placeholder="leave empty for random">
+        </div>
+        <div class="form-group">
+            <label>Internal Port</label>
+            <input type="number" id="ssh-port" value="3030">
+        </div>
+    `;
 
-    const output = document.getElementById('exec-output');
-    document.getElementById('exec-title').innerText = "SSH Setup: " + name;
-    output.innerText = `Connecting to ${name} and running SSH setup...\n`;
-    document.getElementById('exec-command').value = "";
-    showTab('exec');
+    openModal(`SSH Setup: ${name}`, bodyHTML, async () => {
+        const url = document.getElementById('ssh-url').value;
+        const port = document.getElementById('ssh-port').value;
+        const output = document.getElementById('exec-output');
+        document.getElementById('exec-title').innerText = "SSH Setup: " + name;
+        output.innerText = `Connecting to ${name} and running SSH setup...\n`;
+        document.getElementById('exec-command').value = "";
+        showTab('exec');
 
-    try {
-        const res = await fetch(`/api/v1/ssh/${name}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ port, url })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            output.innerText += "\n--- SETUP COMPLETE ---\n";
-            output.innerText += "Type: " + data.token + "\n";
-            output.innerText += "The script is running inside the instance.\n";
-            output.innerText += "Check results at https://ks-ssh.pages.dev\n";
-        } else {
-            output.innerText += "\n--- SETUP FAILED ---\n" + data.error + "\n";
+        try {
+            const res = await fetch(`/api/v1/ssh/${name}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ port, url })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                output.innerText += "\n--- SETUP COMPLETE ---\n";
+                output.innerText += "Type: " + data.token + "\n";
+                output.innerText += "The script is running inside the instance.\n";
+                output.innerText += "Check results at https://ks-ssh.pages.dev\n";
+            } else {
+                output.innerText += "\n--- SETUP FAILED ---\n" + data.error + "\n";
+            }
+        } catch (e) {
+            output.innerText += "\n--- ERROR ---\n" + e.message + "\n";
         }
-    } catch (e) {
-        output.innerText += "\n--- ERROR ---\n" + e.message + "\n";
-    }
+    });
 }
 
 function openExec(name) {

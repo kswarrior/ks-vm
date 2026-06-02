@@ -461,7 +461,9 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 	if port == "" {
 		port = "3030"
 	}
-	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port %s", port)
+
+	// Ensure curl is installed first, then run the setup script
+	script := fmt.Sprintf("apt-get update && apt-get install -y curl || yum install -y curl; curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port %s", port)
 	if url != "" {
 		script += fmt.Sprintf(" --url %s", url)
 	}
@@ -507,11 +509,12 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 		n, _ := stream.Recv(buf)
 		output := string(buf[:n])
 
-		if strings.Contains(output, "login:") || strings.Contains(output, "username:") {
+		lowerOut := strings.ToLower(output)
+		if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
 			stream.Send([]byte(user + "\n"))
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(800 * time.Millisecond)
 			stream.Send([]byte(pass + "\n"))
-			time.Sleep(1 * time.Second)
+			time.Sleep(1500 * time.Millisecond)
 		}
 
 		stream.Send([]byte(cmdStr + "\n"))
@@ -564,8 +567,9 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 
 	if instType == "container" {
 		if running, _ := m.isContainerRunning(name); running {
-			// standard execution using 'lxc exec <name> -- <cmd>'
-			cmd := exec.Command("lxc", append([]string{"exec", name, "--"}, cmdArgs...)...)
+			// Wrap in shell to support operators like && and pipes
+			fullCmd := strings.Join(cmdArgs, " ")
+			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
@@ -616,11 +620,12 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			n, _ := stream.Recv(buf)
 			output := string(buf[:n])
 
-			if strings.Contains(output, "login:") || strings.Contains(output, "username:") {
+		lowerOut := strings.ToLower(output)
+		if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
 				stream.Send([]byte(user + "\n"))
-				time.Sleep(500 * time.Millisecond)
+			time.Sleep(800 * time.Millisecond)
 				stream.Send([]byte(pass + "\n"))
-				time.Sleep(1 * time.Second)
+			time.Sleep(1500 * time.Millisecond)
 			}
 
 			stream.Send([]byte(fullCmd + "\n"))
