@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     setInterval(() => {
         const activeNavItem = document.querySelector('.nav-item.active');
-        if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
+        if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances(false);
         if (activeNavItem && activeNavItem.dataset.tab === 'system') fetchHostMetrics();
     }, 2000);
 

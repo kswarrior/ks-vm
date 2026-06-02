@@ -462,13 +462,14 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 		port = "3030"
 	}
 
-	// Ensure curl is installed first, then run the setup script
+	// Ensure curl is installed first, then run the setup script in background
 	script := fmt.Sprintf("apt-get update && apt-get install -y curl || yum install -y curl; curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port %s", port)
 	if url != "" {
 		script += fmt.Sprintf(" --url %s", url)
 	}
 
-	cmdStr := script
+	// Use nohup to ensure the process continues after the management session closes
+	cmdStr := fmt.Sprintf("nohup sh -c '%s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
 
 	// Determine token for UI feedback
 	token := "custom"
@@ -628,10 +629,19 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			time.Sleep(1500 * time.Millisecond)
 			}
 
+			// Clear buffer before sending command
+			bufClear := make([]byte, 4096)
+			for {
+				n, err = stream.Recv(bufClear)
+				if n == 0 || err != nil {
+					break
+				}
+			}
+
 			stream.Send([]byte(fullCmd + "\n"))
 
-			// Continuous capture loop for 4 seconds
-			captureDeadline := time.Now().Add(4 * time.Second)
+			// Continuous capture loop for 2 seconds (usually enough for simple commands)
+			captureDeadline := time.Now().Add(2 * time.Second)
 			var captured strings.Builder
 			for time.Now().Before(captureDeadline) {
 				n, err = stream.Recv(buf)
@@ -641,7 +651,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 				if err != nil {
 					break
 				}
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 			}
 			res := captured.String()
 			if res == "" {
@@ -649,14 +659,16 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			}
 
 			// Clean up output: remove command echo and common terminal artifacts
+			res = strings.ReplaceAll(res, "\r", "")
 			lines := strings.Split(res, "\n")
 			var filtered []string
 			for _, line := range lines {
-				line = strings.TrimRight(line, "\r")
-				if strings.Contains(line, fullCmd) || strings.Contains(line, "login:") || strings.Contains(line, "Password:") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.Contains(line, fullCmd) || strings.Contains(strings.ToLower(line), "login:") || strings.Contains(strings.ToLower(line), "password:") {
 					continue
 				}
-				if strings.TrimSpace(line) == "" {
+				// Remove common shell prompts
+				if strings.HasSuffix(line, "#") || strings.HasSuffix(line, "$") {
 					continue
 				}
 				filtered = append(filtered, line)
