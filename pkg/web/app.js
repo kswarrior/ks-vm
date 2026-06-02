@@ -413,9 +413,10 @@ async function getSSH(name) {
         });
         const data = await res.json();
         if (res.ok) {
-            output.innerText += "\n--- TUNNEL ESTABLISHED ---\n";
-            output.innerText += "SSH Token: " + data.token + "\n";
-            output.innerText += "Use this token at https://ks-ssh.pages.dev\n";
+            output.innerText += "\n--- SETUP COMPLETE ---\n";
+            output.innerText += "Type: " + data.token + "\n";
+            output.innerText += "The script is running inside the instance.\n";
+            output.innerText += "Check results at https://ks-ssh.pages.dev\n";
         } else {
             output.innerText += "\n--- SETUP FAILED ---\n" + data.error + "\n";
         }

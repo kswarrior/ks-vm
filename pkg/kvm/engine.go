@@ -468,6 +468,12 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 
 	cmdStr := script
 
+	// Determine token for UI feedback
+	token := "custom"
+	if url == "" {
+		token = "random"
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
 		// Try Exec first (Guest Agent)
@@ -511,7 +517,7 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 		stream.Send([]byte(cmdStr + "\n"))
 		time.Sleep(1 * time.Second)
 
-		return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+		return token, nil
 	}
 
 	// For containers, m.Exec is native (nsenter)
@@ -519,7 +525,7 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("failed to run SSH setup inside container: %v", err)
 	}
-	return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+	return token, nil
 }
 
 func (m *Manager) Restart(name string) error {
@@ -618,10 +624,21 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			}
 
 			stream.Send([]byte(fullCmd + "\n"))
-			time.Sleep(4 * time.Second)
 
-			n, _ = stream.Recv(buf)
-			res := string(buf[:n])
+			// Continuous capture loop for 4 seconds
+			captureDeadline := time.Now().Add(4 * time.Second)
+			var captured strings.Builder
+			for time.Now().Before(captureDeadline) {
+				n, err = stream.Recv(buf)
+				if n > 0 {
+					captured.Write(buf[:n])
+				}
+				if err != nil {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			res := captured.String()
 			if res == "" {
 				res = "(no output captured from console - command may still be running)"
 			}

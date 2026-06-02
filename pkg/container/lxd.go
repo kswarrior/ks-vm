@@ -120,7 +120,7 @@ func (c *LXDClient) ensureImage(image string) error {
 		return nil
 	}
 	// Try fingerprint
-	if len(image) == 64 {
+	if len(image) == 64 && !strings.Contains(image, ":") && !strings.Contains(image, ".") {
 		resp, err = c.do("GET", "/1.0/images/"+image, nil)
 		if err == nil {
 			resp.Body.Close()
@@ -159,7 +159,7 @@ func (c *LXDClient) ensureImage(image string) error {
 	body := map[string]interface{}{
 		"source":  source,
 		"aliases": []map[string]interface{}{{"name": image}},
-		"public":  false,
+		"public":  true,
 	}
 	resp, err = c.do("POST", "/1.0/images", body)
 	if err != nil {
