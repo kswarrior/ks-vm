@@ -343,7 +343,90 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
 
 @media (max-width: 768px) {
     .sidebar-icons { display: none; }
-    .main-view { padding: 20px; }
+    .main-view { padding: 16px; }
     .instance-info-row { flex-direction: column; gap: 16px; }
     .form-row { grid-template-columns: 1fr; gap: 0; }
+
+    .instance-body-compact {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 20px !important;
+    }
+
+    .instance-metrics-compact {
+        padding: 24px 0 !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-top: 1px solid var(--border) !important;
+        border-bottom: 1px solid var(--border) !important;
+        justify-content: space-around !important;
+        display: flex !important;
+    }
+
+    .mini-bar {
+        height: 100px !important;
+        width: 10px !important;
+        border-radius: 5px !important;
+    }
+
+    .instance-actions-compact {
+        justify-content: space-between !important;
+        display: flex !important;
+        padding-top: 16px;
+    }
+
+    .btn-icon svg {
+        width: 28px !important;
+        height: 28px !important;
+    }
+
+    .instance-main-info {
+        width: 100% !important;
+        display: flex !important;
+        margin-bottom: 8px;
+    }
+
+    .instance-card {
+        padding: 32px 24px !important;
+        margin-bottom: 24px !important;
+        border-radius: 20px !important;
+        min-height: 320px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .page-header div {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 12px !important;
+        display: flex !important;
+    }
+
+    .page-header .btn {
+        width: 100% !important;
+    }
+
+    .brand { font-size: 1rem; }
+    .header { padding: 0 16px; }
+
+    .instance-title-small { font-size: 1.2rem !important; }
+    .instance-meta-small { font-size: 0.85rem !important; }
+
+    .grid-classic {
+        grid-template-columns: 1fr;
+    }
+
+    #toast-container {
+        top: 72px;
+        right: 16px;
+        left: 16px;
+    }
+
+    .toast {
+        min-width: 0;
+        width: 100%;
+    }
+
+    h1 { font-size: 1.6rem !important; }
 }
