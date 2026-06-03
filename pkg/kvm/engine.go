@@ -468,8 +468,8 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 		script += fmt.Sprintf(" --url %s", url)
 	}
 
-	// Use nohup to ensure the process continues after the management session closes
-	cmdStr := fmt.Sprintf("nohup sh -c '%s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
+	// Run the setup in the foreground so the user sees progress, but use nohup for the actual tunnel
+	cmdStr := fmt.Sprintf("sh -c '%s'", script)
 
 	// Determine token for UI feedback
 	token := "custom"
@@ -629,7 +629,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			time.Sleep(1500 * time.Millisecond)
 			}
 
-			// Clear buffer before sending command
+			// Clear buffer
 			bufClear := make([]byte, 4096)
 			for {
 				n, err = stream.Recv(bufClear)
@@ -638,37 +638,41 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 				}
 			}
 
-			stream.Send([]byte(fullCmd + "\n"))
+			// Use markers to isolate output
+			startMarker := "__KSVM_START__"
+			endMarker := "__KSVM_END__"
+			markedCmd := fmt.Sprintf("echo %s; %s; echo %s\n", startMarker, fullCmd, endMarker)
+			stream.Send([]byte(markedCmd))
 
-			// Continuous capture loop for 2 seconds (usually enough for simple commands)
-			captureDeadline := time.Now().Add(2 * time.Second)
+			// Capture loop
+			captureDeadline := time.Now().Add(5 * time.Second)
 			var captured strings.Builder
 			for time.Now().Before(captureDeadline) {
 				n, err = stream.Recv(buf)
 				if n > 0 {
 					captured.Write(buf[:n])
 				}
-				if err != nil {
+				if strings.Contains(captured.String(), endMarker) || err != nil {
 					break
 				}
-				time.Sleep(50 * time.Millisecond)
-			}
-			res := captured.String()
-			if res == "" {
-				res = "(no output captured from console - command may still be running)"
+				time.Sleep(100 * time.Millisecond)
 			}
 
-			// Clean up output: remove command echo and common terminal artifacts
+			res := captured.String()
+			if idx := strings.Index(res, startMarker); idx != -1 {
+				res = res[idx+len(startMarker):]
+			}
+			if idx := strings.Index(res, endMarker); idx != -1 {
+				res = res[:idx]
+			}
+
+			// Final cleaning
 			res = strings.ReplaceAll(res, "\r", "")
 			lines := strings.Split(res, "\n")
 			var filtered []string
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
-				if line == "" || strings.Contains(line, fullCmd) || strings.Contains(strings.ToLower(line), "login:") || strings.Contains(strings.ToLower(line), "password:") {
-					continue
-				}
-				// Remove common shell prompts
-				if strings.HasSuffix(line, "#") || strings.HasSuffix(line, "$") {
+				if line == "" || strings.Contains(line, markedCmd) {
 					continue
 				}
 				filtered = append(filtered, line)
@@ -676,10 +680,10 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 
 			outputPreview := strings.Join(filtered, "\n")
 			if outputPreview == "" {
-				outputPreview = "(command executed, but no new output was captured)"
+				outputPreview = "(command executed, but no output captured)"
 			}
 
-			return "Command injected via serial console. Output preview:\n" + outputPreview, nil
+			return "Serial console execution complete. Output preview:\n" + outputPreview, nil
 		}
 		return "", err
 	}

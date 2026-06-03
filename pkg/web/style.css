@@ -133,8 +133,8 @@ body {
 }
 
 @keyframes slideUp {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .instance-card {
@@ -154,58 +154,59 @@ body {
     font-weight: 800; color: var(--primary); letter-spacing: 0.1em;
 }
 
-/* Instance Card Styles */
-.instance-card { max-width: 900px; }
+/* Instance Card Styles - Compact Rectangular */
+.instance-card { max-width: 100%; padding: 16px 24px; margin-bottom: 12px; }
 
-.instance-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 24px;
-}
-
-.instance-icon {
-    width: 48px;
-    height: 48px;
-    background: linear-gradient(135deg, var(--primary), var(--primary-hover));
-    color: #fff;
-    border-radius: 12px;
+.instance-body-compact {
     display: flex;
     align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 10px rgba(103, 61, 230, 0.2);
-}
-.instance-icon svg { width: 24px; height: 24px; }
-
-.instance-title { font-size: 1.25rem; font-weight: 800; color: #000; margin-bottom: 4px; }
-.instance-status { font-size: 0.65rem; font-weight: 800; padding: 2px 8px; border-radius: 4px; display: inline-block; letter-spacing: 0.05em; }
-
-.status-running { background: #dcfce7; color: #166534; }
-.status-stopped { background: #fee2e2; color: #991b1b; }
-.status-deploying { background: var(--primary-light); color: var(--primary); }
-
-.instance-info-row {
-    display: flex;
-    gap: 40px;
-    margin-bottom: 24px;
-    padding-bottom: 24px;
-    border-bottom: 1px solid var(--border);
-}
-
-.info-group .info-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; margin-bottom: 4px; }
-.info-group .info-value { font-size: 0.9rem; font-weight: 700; color: var(--text-main); font-family: monospace; }
-
-/* Metrics Grid */
-.metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    justify-content: space-between;
     gap: 24px;
 }
 
-.stat-item { flex: 1; }
-.stat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
-.stat-progress { height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.3s ease; }
+.instance-main-info { display: flex; align-items: center; gap: 16px; flex: 1; }
+
+.instance-icon-small {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+    color: #fff; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 8px rgba(103, 61, 230, 0.15);
+}
+.instance-icon-small svg { width: 20px; height: 20px; }
+
+.instance-title-small { font-size: 1rem; font-weight: 800; color: #111; margin-bottom: 2px; }
+.instance-status-dot { width: 8px; height: 8px; border-radius: 4px; }
+.instance-status-text { font-size: 0.65rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.05em; }
+.instance-meta-small { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; }
+
+.status-running { background: var(--success); }
+.status-stopped { background: var(--danger); }
+.status-deploying { background: var(--primary); animation: pulse 1.5s infinite; }
+
+/* Vertical Metrics */
+.instance-metrics-compact {
+    display: flex;
+    gap: 20px;
+    padding: 0 24px;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+}
+
+.mini-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mini-bar { width: 4px; height: 32px; background: #f3f4f6; border-radius: 2px; position: relative; overflow: hidden; }
+.mini-fill { width: 100%; background: var(--primary); position: absolute; bottom: 0; transition: height 0.4s ease; }
+.mini-label { font-size: 0.6rem; font-weight: 800; color: var(--text-muted); }
+
+/* Compact Actions */
+.instance-actions-compact { display: flex; align-items: center; gap: 4px; }
+.btn-icon {
+    background: none; border: none; cursor: pointer; color: var(--text-muted);
+    padding: 8px; border-radius: 8px; transition: 0.2s;
+    display: flex; align-items: center; justify-content: center;
+}
+.btn-icon:hover { background: var(--primary-light); color: var(--primary); transform: translateY(-2px); }
+.btn-icon svg { width: 18px; height: 18px; }
 
 /* Actions Menu */
 .actions-menu { position: relative; }

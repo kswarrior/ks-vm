@@ -114,11 +114,24 @@ func (c *LXDClient) waitForOperation(opPath string) error {
 
 func (c *LXDClient) ensureImage(image string) error {
 	// 1. Check if image already exists locally by alias or fingerprint
-	resp, err := c.do("GET", "/1.0/images/aliases/"+image, nil)
+	// Normalize name (remove images: or ubuntu: prefix if checked locally)
+	localName := image
+	if strings.Contains(image, ":") {
+		parts := strings.Split(image, ":")
+		localName = parts[1]
+	}
+
+	resp, err := c.do("GET", "/1.0/images/aliases/"+localName, nil)
 	if err == nil {
 		resp.Body.Close()
 		return nil
 	}
+	resp, err = c.do("GET", "/1.0/images/aliases/"+image, nil)
+	if err == nil {
+		resp.Body.Close()
+		return nil
+	}
+
 	// Try fingerprint
 	if len(image) == 64 && !strings.Contains(image, ":") && !strings.Contains(image, ".") {
 		resp, err = c.do("GET", "/1.0/images/"+image, nil)
