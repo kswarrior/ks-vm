@@ -12,6 +12,7 @@ import (
 
 type HostMetrics struct {
 	CPUUsage  float64 `json:"cpu_usage"`
+	CPUCores  int     `json:"cpu_cores"`
 	MemTotal  uint64  `json:"mem_total"`
 	MemUsed   uint64  `json:"mem_used"`
 	DiskTotal uint64  `json:"disk_total"`
@@ -20,6 +21,7 @@ type HostMetrics struct {
 	NetSent   uint64  `json:"net_sent"`
 	Uptime    float64 `json:"uptime"`
 	Kernel    string  `json:"kernel"`
+	LoadAvg   string  `json:"load_avg"`
 }
 
 var (
@@ -56,6 +58,17 @@ func GetHostMetrics() (HostMetrics, error) {
 
 	// Uptime
 	metrics.Uptime, _ = getUptime()
+
+	// CPU Cores
+	metrics.CPUCores = getCPUCores()
+
+	// Load Average
+	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) >= 3 {
+			metrics.LoadAvg = strings.Join(fields[:3], " ")
+		}
+	}
 
 	// Kernel
 	if data, err := os.ReadFile("/proc/version"); err == nil {
@@ -161,6 +174,25 @@ func getNetStats() (recv, sent uint64, err error) {
 		}
 	}
 	return recv, sent, nil
+}
+
+func getCPUCores() int {
+	file, err := os.Open("/proc/cpuinfo")
+	if err != nil {
+		return 1
+	}
+	defer file.Close()
+	count := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		if strings.HasPrefix(scanner.Text(), "processor") {
+			count++
+		}
+	}
+	if count == 0 {
+		return 1
+	}
+	return count
 }
 
 func getUptime() (float64, error) {

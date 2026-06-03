@@ -483,15 +483,23 @@ async function fetchImages(animate = false) {
     allImages = await res.json();
     const list = document.getElementById('image-list');
     list.innerHTML = allImages.map(img => `
-        <div class="card ${animate ? 'animate-in' : ''}">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <h3 style="margin:0;">${img.Name}</h3>
-                <span class="badge" style="color:var(--primary); font-size:0.7rem; font-weight:800;">${img.Type.toUpperCase()}</span>
+        <div class="card ${animate ? 'animate-in' : ''}" style="padding:20px;">
+            <div style="display:flex; align-items:center; gap:15px; margin-bottom:16px;">
+                <div class="instance-icon-small" style="background:var(--primary-light); color:var(--primary);">
+                    <svg viewBox="0 0 24 24"><path d="M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V4C4,2.89 4.89,2 6,2M11,15V12H9V15H6V17H9V20H11V17H14V15H11Z" fill="currentColor"/></svg>
+                </div>
+                <div style="flex:1;">
+                    <h3 style="margin:0; font-size:1.1rem;">${img.Name}</h3>
+                    <div style="font-size:0.7rem; font-weight:800; color:var(--primary);">${img.Type.toUpperCase()}</div>
+                </div>
             </div>
-            <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; font-size:0.8rem; color:var(--text-muted); background:var(--bg-main); padding:8px 12px; border-radius:8px;">
+                <span>Size</span>
+                <span style="font-weight:700; color:var(--text-main);">${(img.Size / 1024 / 1024).toFixed(1)} MB</span>
+            </div>
             <div style="display:flex; gap:8px;">
-                <button class="btn btn-outline" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
-                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
+                <button class="btn btn-outline" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem; padding:8px;">Rename</button>
+                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem; padding:8px;">Delete</button>
             </div>
         </div>
     `).join('');
@@ -503,6 +511,10 @@ async function fetchHostMetrics(init = false) {
         const res = await fetch('/api/v1/monitor');
         if (!res.ok) throw new Error("API status " + res.status);
         const data = await res.json();
+
+        if (init) {
+            toast("Dashboard connected", 'success');
+        }
         const m = data.metrics;
 
         const activeInstEl = document.getElementById('sys-active-inst');
@@ -513,6 +525,12 @@ async function fetchHostMetrics(init = false) {
 
         const kernelEl = document.getElementById('sys-kernel');
         if (kernelEl && m && m.kernel) kernelEl.innerText = m.kernel;
+
+        const loadEl = document.getElementById('sys-load');
+        if (loadEl && m && m.load_avg) loadEl.innerText = m.load_avg;
+
+        const coresEl = document.getElementById('sys-cores');
+        if (coresEl && m && m.cpu_cores) coresEl.innerText = m.cpu_cores;
 
         if (!m) {
             console.warn("No metrics data received");
@@ -681,15 +699,19 @@ async function fetchUsers(animate = false) {
     const data = await res.json();
     const list = document.getElementById('user-list');
     list.innerHTML = data.map(u => `
-        <div class="card ${animate ? 'animate-in' : ''}">
-            <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid rgba(103, 61, 230, 0.1);">${u.username[0].toUpperCase()}</div>
-                <div>
-                    <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
+        <div class="card ${animate ? 'animate-in' : ''}" style="padding:20px;">
+            <div style="display:flex; align-items:center; gap:15px; margin-bottom:16px;">
+                <div style="background:linear-gradient(135deg, var(--primary), var(--primary-hover)); color:#fff; width:44px; height:44px; border-radius:22px; display:flex; align-items:center; justify-content:center; font-weight:800; box-shadow:0 4px 8px rgba(103, 61, 230, 0.2); font-size:1.2rem;">${u.username[0].toUpperCase()}</div>
+                <div style="flex:1;">
+                    <h3 style="margin:0; font-size:1.1rem;">${u.username}</h3>
                     <div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>
                 </div>
             </div>
-            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem;">Delete User</button>
+            <div style="background:var(--bg-main); padding:8px 12px; border-radius:8px; margin-bottom:16px; font-size:0.7rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+                <span>Role</span>
+                <span style="font-weight:700; color:var(--primary);">ADMINISTRATOR</span>
+            </div>
+            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem; padding:8px;">Delete Account</button>
         </div>
     `).join('');
 }
