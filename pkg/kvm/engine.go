@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -621,19 +622,19 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			n, _ := stream.Recv(buf)
 			output := string(buf[:n])
 
-		lowerOut := strings.ToLower(output)
-		if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
+			lowerOut := strings.ToLower(output)
+			if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
 				stream.Send([]byte(user + "\n"))
-			time.Sleep(800 * time.Millisecond)
+				time.Sleep(800 * time.Millisecond)
 				stream.Send([]byte(pass + "\n"))
-			time.Sleep(1500 * time.Millisecond)
+				time.Sleep(1500 * time.Millisecond)
 			}
 
 			// Clear buffer
 			bufClear := make([]byte, 4096)
 			for {
-				n, err = stream.Recv(bufClear)
-				if n == 0 || err != nil {
+				n, _ = stream.Recv(bufClear)
+				if n == 0 {
 					break
 				}
 			}
@@ -645,14 +646,14 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			stream.Send([]byte(markedCmd))
 
 			// Capture loop
-			captureDeadline := time.Now().Add(5 * time.Second)
+			captureDeadline := time.Now().Add(6 * time.Second)
 			var captured strings.Builder
 			for time.Now().Before(captureDeadline) {
-				n, err = stream.Recv(buf)
+				n, _ = stream.Recv(buf)
 				if n > 0 {
 					captured.Write(buf[:n])
 				}
-				if strings.Contains(captured.String(), endMarker) || err != nil {
+				if strings.Contains(captured.String(), endMarker) {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -668,11 +669,13 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 
 			// Final cleaning
 			res = strings.ReplaceAll(res, "\r", "")
+			res = stripANSI(res)
+
 			lines := strings.Split(res, "\n")
 			var filtered []string
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
-				if line == "" || strings.Contains(line, markedCmd) {
+				if line == "" || strings.Contains(line, startMarker) || strings.Contains(line, endMarker) || strings.Contains(line, "echo ") {
 					continue
 				}
 				filtered = append(filtered, line)
@@ -680,10 +683,10 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 
 			outputPreview := strings.Join(filtered, "\n")
 			if outputPreview == "" {
-				outputPreview = "(command executed, but no output captured)"
+				outputPreview = "(command executed, no output returned)"
 			}
 
-			return "Serial console execution complete. Output preview:\n" + outputPreview, nil
+			return "Output:\n" + outputPreview, nil
 		}
 		return "", err
 	}
@@ -1163,4 +1166,10 @@ func (m *Manager) List() ([]VMInfo, error) {
 	}
 
 	return infos, nil
+}
+
+func stripANSI(str string) string {
+	const ansi = "[\u001B\u009B][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]"
+	re := regexp.MustCompile(ansi)
+	return re.ReplaceAllString(str, "")
 }
