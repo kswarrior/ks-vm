@@ -175,16 +175,58 @@ body {
 }
 .instance-icon-small svg { width: 20px; height: 20px; }
 
-.instance-title-small { font-size: 1rem; font-weight: 800; color: #111; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.instance-title-small { font-size: 1rem; font-weight: 800; color: #111; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
 .instance-status-dot { width: 8px; height: 8px; border-radius: 4px; }
 .instance-status-text { font-size: 0.65rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.05em; }
 .instance-meta-small { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; }
+
+.status-tag {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.status-tag-running { background: #dcfce7; color: #15803d; }
+.status-tag-stopped { background: #fee2e2; color: #b91c1c; }
+.status-tag-deploying { background: #fef9c3; color: #a16207; animation: pulse 1.5s infinite; }
 
 .status-running { background: var(--success); }
 .status-stopped { background: var(--danger); }
 .status-deploying { background: var(--primary); animation: pulse 1.5s infinite; }
 
-/* Horizontal Metrics */
+/* Horizontal Metrics Flat */
+.metrics-row-flat {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 12px;
+}
+
+.metric-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.metric-item b {
+    color: var(--text-main);
+    font-weight: 700;
+}
+
+/* Header & Menu */
+.instance-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
 .instance-metrics-compact {
     display: flex;
     flex-direction: column;

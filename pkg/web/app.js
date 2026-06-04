@@ -101,6 +101,7 @@ async function fetchInstances(animate = false) {
 
             const statusText = vm.Status || 'unknown';
             const statusClass = `status-${statusText}`;
+            const statusTagClass = `status-tag-${statusText}`;
             const memUsed = ((vm.MemoryUsage || 0) / 1024).toFixed(1);
             const memTotal = ((vm.MemoryMB || 1024) / 1024).toFixed(1);
             const diskUsed = ((vm.DiskUsage || 0) / 1024 / 1024 / 1024).toFixed(1);
@@ -108,85 +109,47 @@ async function fetchInstances(animate = false) {
 
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
             const typeLabel = vm.Type === 'container' ? 'LXD' : 'VM';
-            const memTotalVal = vm.MemoryMB || 1024;
-            const memPerc = Math.min(100, ((vm.MemoryUsage || 0) / memTotalVal * 100)).toFixed(1);
-            const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
-            const diskPerc = diskTotalBytes > 0 ? Math.min(100, ((vm.DiskUsage || 0) / diskTotalBytes * 100)).toFixed(1) : 0;
 
             const ipList = (vm.IPs && vm.IPs.length > 0) ? vm.IPs.join(', ') : 'internal';
-            let uptimeStr = '';
-            if (vm.uptime > 0) {
-                const hours = Math.floor(vm.uptime / 3600);
-                const minutes = Math.floor((vm.uptime % 3600) / 60);
-                uptimeStr = ` • UP ${hours}h ${minutes}m`;
-            }
-
-            const specsStr = `${vm.CPUs} vCPU • ${memTotal}GB RAM • ${diskTotal}GB SSD`;
 
             card.innerHTML = `
                 ${vm.Status === 'deploying' ? `<div class="overlay" id="deploy-overlay-${vm.Name}">DEPLOYING...</div>` : ''}
-                <div class="instance-body-compact">
-                    <div class="instance-main-info">
+                <div class="instance-card-header">
+                    <div style="display:flex; align-items:center; gap:12px;">
                         <div class="instance-icon-small">
                             ${vm.Type === 'container' ?
                                 '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>' :
                                 '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>'
                             }
                         </div>
-                        <div class="instance-desc">
-                            <div class="instance-title-small">${vm.Name}</div>
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <div style="display:flex; align-items:center; gap:8px;">
-                                    <div class="instance-status-dot ${statusClass}"></div>
-                                    <span class="instance-status-text">${statusText.toUpperCase()}</span>
-                                    <span class="instance-meta-small">${typeLabel} • ${ipList}${uptimeStr}</span>
-                                </div>
-                                <div class="instance-meta-small" style="font-size:0.65rem; opacity:0.7;">${specsStr}</div>
+                        <div>
+                            <div class="instance-title-small">
+                                ${vm.Name}
+                                <span class="status-tag ${statusTagClass}">${statusText}</span>
                             </div>
+                            <div style="color:var(--text-muted); font-size:0.75rem; font-weight:500;">${ipList}</div>
                         </div>
                     </div>
+                    <div class="actions-menu">
+                        <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
+                            <svg viewBox="0 0 24 24" style="width:20px;height:20px;"><path d="M12,16A2,2 0 0,1 14,18A2,2 0 0,1 12,20A2,2 0 0,1 10,18A2,2 0 0,1 12,16M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4Z" fill="currentColor"/></svg>
+                        </button>
+                        <div id="dropdown-${vm.Name}" class="dropdown">
+                            <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
+                            <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
+                            <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
+                            <div class="dropdown-item" onclick="openExec('${vm.Name}')">RUN CODE</div>
+                            ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH TOKEN</div>` : ''}
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
+                        </div>
+                    </div>
+                </div>
 
-                    <div class="instance-metrics-compact">
-                        <div class="metric-row">
-                            <span class="metric-label">CPU</span>
-                            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: ${cpuPerc}%"></div></div>
-                            <span class="metric-value">${cpuPerc}%</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">RAM</span>
-                            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: ${memPerc}%"></div></div>
-                            <span class="metric-value">${memUsed}GB</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">DSK</span>
-                            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: ${diskPerc}%"></div></div>
-                            <span class="metric-value">${diskUsed}GB</span>
-                        </div>
-                    </div>
-
-                    <div class="instance-actions-compact">
-                        <button class="btn-icon" onclick="action('launch', '${vm.Name}')" title="Start">
-                            <svg viewBox="0 0 24 24"><path d="M8,5.14V19.14L19,12.14L8,5.14Z" fill="currentColor"/></svg>
-                        </button>
-                        <button class="btn-icon" onclick="action('stop', '${vm.Name}')" title="Stop">
-                            <svg viewBox="0 0 24 24"><path d="M18,18H6V6H18V18Z" fill="currentColor"/></svg>
-                        </button>
-                        <button class="btn-icon" onclick="openExec('${vm.Name}')" title="Terminal">
-                            <svg viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L12,15.41L10.59,16.83L7.34,13.58C6.95,13.19 6.95,12.56 7.34,12.17L10.59,8.92L12,10.33L9.58,12.75" fill="currentColor"/></svg>
-                        </button>
-                        <div class="actions-menu">
-                            <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
-                                <svg viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
-                            </button>
-                            <div id="dropdown-${vm.Name}" class="dropdown">
-                                <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
-                                <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
-                                ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH TOKEN</div>` : ''}
-                                <div class="dropdown-divider"></div>
-                                <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
-                            </div>
-                        </div>
-                    </div>
+                <div class="metrics-row-flat">
+                    <div class="metric-item">RAM <b>${memUsed}/${memTotal} GB</b></div>
+                    <div class="metric-item">CPU <b>${cpuPerc}%</b></div>
+                    <div class="metric-item">Disk <b>${diskUsed}gb/${diskTotal}gb</b></div>
                 </div>
             `;
             listContainer.appendChild(card);
@@ -369,17 +332,14 @@ async function action(type, name) {
     // Optimistic UI
     const card = document.getElementById(`card-${name}`);
     let oldStatus = '';
-    let oldDotClass = '';
+    let oldTagClass = '';
     if (card) {
-        const statusEl = card.querySelector('.instance-status-text');
-        const dotEl = card.querySelector('.instance-status-dot');
-        if (statusEl) {
-            oldStatus = statusEl.innerText;
-            statusEl.innerText = type === 'delete' ? 'DELETING...' : 'PROCESSING...';
-        }
-        if (dotEl) {
-            oldDotClass = dotEl.className;
-            dotEl.className = 'instance-status-dot status-deploying'; // Use pulse animation
+        const tagEl = card.querySelector('.status-tag');
+        if (tagEl) {
+            oldStatus = tagEl.innerText;
+            oldTagClass = tagEl.className;
+            tagEl.innerText = type === 'delete' ? 'DELETING...' : 'PROCESSING...';
+            tagEl.className = 'status-tag status-tag-deploying'; // Use pulse animation
         }
     }
 
@@ -395,10 +355,11 @@ async function action(type, name) {
             toast(data.error || "Operation failed", 'error');
             // Revert on error
             if (card) {
-                const statusEl = card.querySelector('.instance-status-text');
-                const dotEl = card.querySelector('.instance-status-dot');
-                if (statusEl) statusEl.innerText = oldStatus;
-                if (dotEl) dotEl.className = oldDotClass;
+                const tagEl = card.querySelector('.status-tag');
+                if (tagEl) {
+                    tagEl.innerText = oldStatus;
+                    tagEl.className = oldTagClass;
+                }
             }
         }
     } catch (e) {
