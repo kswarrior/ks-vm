@@ -113,7 +113,15 @@ async function fetchInstances(animate = false) {
             const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
             const diskPerc = diskTotalBytes > 0 ? Math.min(100, ((vm.DiskUsage || 0) / diskTotalBytes * 100)).toFixed(1) : 0;
 
-            const primaryIP = (vm.IPs && vm.IPs.length > 0) ? vm.IPs[0] : 'N/A';
+            const ipList = (vm.IPs && vm.IPs.length > 0) ? vm.IPs.join(', ') : 'internal';
+            let uptimeStr = '';
+            if (vm.uptime > 0) {
+                const hours = Math.floor(vm.uptime / 3600);
+                const minutes = Math.floor((vm.uptime % 3600) / 60);
+                uptimeStr = ` • UP ${hours}h ${minutes}m`;
+            }
+
+            const specsStr = `${vm.CPUs} vCPU • ${memTotal}GB RAM • ${diskTotal}GB SSD`;
 
             card.innerHTML = `
                 ${vm.Status === 'deploying' ? `<div class="overlay" id="deploy-overlay-${vm.Name}">DEPLOYING...</div>` : ''}
@@ -127,26 +135,32 @@ async function fetchInstances(animate = false) {
                         </div>
                         <div class="instance-desc">
                             <div class="instance-title-small">${vm.Name}</div>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <div class="instance-status-dot ${statusClass}"></div>
-                                <span class="instance-status-text">${statusText.toUpperCase()}</span>
-                                <span class="instance-meta-small">${typeLabel} • ${primaryIP}</span>
+                            <div style="display:flex; flex-direction:column; gap:2px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <div class="instance-status-dot ${statusClass}"></div>
+                                    <span class="instance-status-text">${statusText.toUpperCase()}</span>
+                                    <span class="instance-meta-small">${typeLabel} • ${ipList}${uptimeStr}</span>
+                                </div>
+                                <div class="instance-meta-small" style="font-size:0.65rem; opacity:0.7;">${specsStr}</div>
                             </div>
                         </div>
                     </div>
 
                     <div class="instance-metrics-compact">
-                        <div class="mini-stat" title="CPU: ${cpuPerc}%">
-                            <div class="mini-bar"><div class="mini-fill" style="height: ${cpuPerc}%"></div></div>
-                            <span class="mini-label">CPU</span>
+                        <div class="metric-row">
+                            <span class="metric-label">CPU</span>
+                            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: ${cpuPerc}%"></div></div>
+                            <span class="metric-value">${cpuPerc}%</span>
                         </div>
-                        <div class="mini-stat" title="RAM: ${memUsed}/${memTotal} GB">
-                            <div class="mini-bar"><div class="mini-fill" style="height: ${memPerc}%"></div></div>
-                            <span class="mini-label">RAM</span>
+                        <div class="metric-row">
+                            <span class="metric-label">RAM</span>
+                            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: ${memPerc}%"></div></div>
+                            <span class="metric-value">${memUsed}GB</span>
                         </div>
-                        <div class="mini-stat" title="DISK: ${diskUsed}/${diskTotal} GB">
-                            <div class="mini-bar"><div class="mini-fill" style="height: ${diskPerc}%"></div></div>
-                            <span class="mini-label">DSK</span>
+                        <div class="metric-row">
+                            <span class="metric-label">DSK</span>
+                            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: ${diskPerc}%"></div></div>
+                            <span class="metric-value">${diskUsed}GB</span>
                         </div>
                     </div>
 
@@ -349,20 +363,28 @@ async function updateInstance() {
 }
 
 async function action(type, name) {
+    const apiType = type === 'launch' ? 'launch' : type;
     if (type === 'delete' && !confirm(`Are you sure you want to delete ${name}?`)) return;
 
     // Optimistic UI
     const card = document.getElementById(`card-${name}`);
     let oldStatus = '';
+    let oldDotClass = '';
     if (card) {
-        const statusEl = card.querySelector('.instance-status');
-        oldStatus = statusEl.innerText;
-        statusEl.innerText = type === 'delete' ? 'DELETING...' : 'PROCESSING...';
-        statusEl.className = 'instance-status status-processing';
+        const statusEl = card.querySelector('.instance-status-text');
+        const dotEl = card.querySelector('.instance-status-dot');
+        if (statusEl) {
+            oldStatus = statusEl.innerText;
+            statusEl.innerText = type === 'delete' ? 'DELETING...' : 'PROCESSING...';
+        }
+        if (dotEl) {
+            oldDotClass = dotEl.className;
+            dotEl.className = 'instance-status-dot status-deploying'; // Use pulse animation
+        }
     }
 
     try {
-        const res = await fetch(`/api/v1/${type}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
+        const res = await fetch(`/api/v1/${apiType}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
         const data = await res.json();
         if (res.ok) {
             toast(`${name}: ${type} success`, 'success');
@@ -373,9 +395,10 @@ async function action(type, name) {
             toast(data.error || "Operation failed", 'error');
             // Revert on error
             if (card) {
-                const statusEl = card.querySelector('.instance-status');
-                statusEl.innerText = oldStatus;
-                statusEl.className = `instance-status status-${oldStatus.toLowerCase()}`;
+                const statusEl = card.querySelector('.instance-status-text');
+                const dotEl = card.querySelector('.instance-status-dot');
+                if (statusEl) statusEl.innerText = oldStatus;
+                if (dotEl) dotEl.className = oldDotClass;
             }
         }
     } catch (e) {

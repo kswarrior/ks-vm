@@ -306,48 +306,62 @@ func (m *Manager) updateContainerStatus(name, status string) {
 	}
 }
 
+// getInstType returns "vm" or "container" from meta.json
+func (m *Manager) getInstType(name string) string {
+	instType := "vm"
+	if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
+		var meta map[string]string
+		if err := json.Unmarshal(data, &meta); err == nil {
+			if t, ok := meta["type"]; ok {
+				return t
+			}
+		}
+	}
+	return instType
+}
+
 // Launch starts a stopped VM or Container.
 func (m *Manager) Launch(name string) error {
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		return m.lxd.ControlContainer(name, "start")
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		isActive, err := domain.IsActive()
-		if err != nil {
-			return err
-		}
-		if isActive {
-			return fmt.Errorf("domain %s is already running", name)
-		}
-		return domain.Create()
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
-
-	// Try LXD
-	if err := m.lxd.ControlContainer(name, "start"); err == nil {
-		return nil
+	isActive, err := domain.IsActive()
+	if err != nil {
+		return err
 	}
-
-	return fmt.Errorf("instance %s not found", name)
+	if isActive {
+		return fmt.Errorf("domain %s is already running", name)
+	}
+	return domain.Create()
 }
 
 // Stop gracefully shuts down a VM or Container.
 func (m *Manager) Stop(name string) error {
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		return m.lxd.ControlContainer(name, "stop")
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		isActive, err := domain.IsActive()
-		if err != nil {
-			return err
-		}
-		if !isActive {
-			return fmt.Errorf("domain %s is not running", name)
-		}
-		return domain.Shutdown()
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
-
-	// Try LXD
-	if err := m.lxd.ControlContainer(name, "stop"); err == nil {
-		return nil
+	isActive, err := domain.IsActive()
+	if err != nil {
+		return err
 	}
-
-	return fmt.Errorf("instance %s not found", name)
+	if !isActive {
+		return fmt.Errorf("domain %s is not running", name)
+	}
+	return domain.Shutdown()
 }
 
 // Suspend pauses a running VM.
@@ -407,30 +421,35 @@ type VMInfo struct {
 	DiskGB      uint
 	DiskUsage   int64
 	Image       string
+	Uptime      int64  `json:"uptime"`
 	User        string `json:"user,omitempty"`
 	Password    string `json:"password,omitempty"`
 }
 
 // Delete stops, destroys, and removes the VM/Container and its storage.
 func (m *Manager) Delete(name string) error {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		isActive, err := domain.IsActive()
-		if err == nil && isActive {
-			domain.Destroy()
-		}
-		if err := domain.Undefine(); err != nil {
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		if err := m.lxd.ControlContainer(name, "delete"); err != nil {
 			return err
 		}
 		return os.RemoveAll(m.instancePath(name))
 	}
 
-	// Try LXD
-	if err := m.lxd.ControlContainer(name, "delete"); err == nil {
-		return os.RemoveAll(m.instancePath(name))
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
 
-	return fmt.Errorf("instance %s not found", name)
+	isActive, err := domain.IsActive()
+	if err == nil && isActive {
+		domain.Destroy()
+	}
+	if err := domain.Undefine(); err != nil {
+		return err
+	}
+	return os.RemoveAll(m.instancePath(name))
 }
 
 // AddImage registers a base cloud image.
@@ -534,24 +553,25 @@ func (m *Manager) SetupSSH(name string, port string, url string) (string, error)
 }
 
 func (m *Manager) Restart(name string) error {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		if err := domain.Reboot(0); err != nil {
-			isActive, _ := domain.IsActive()
-			if isActive {
-				return domain.Reset(0)
-			}
-			return err
-		}
-		return nil
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		return m.lxd.ControlContainer(name, "restart")
 	}
 
-	destDir := m.instancePath(name)
-	if _, err := os.Stat(destDir); err == nil {
-		m.Stop(name)
-		return m.Launch(name)
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
-	return fmt.Errorf("instance %s not found", name)
+
+	if err := domain.Reboot(0); err != nil {
+		isActive, _ := domain.IsActive()
+		if isActive {
+			return domain.Reset(0)
+		}
+		return err
+	}
+	return nil
 }
 
 // Exec runs a non-interactive command inside the guest.
@@ -1019,6 +1039,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 				MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
 				DiskUsage: int64(lxdMetrics.DiskUsed * 1024 * 1024 * 1024), DiskGB: uint(lxdMetrics.DiskTotal),
 				Image: "lxd-image",
+				Uptime: lxdMetrics.Uptime,
 			}, nil
 		}
 	}
@@ -1119,12 +1140,21 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			m.statsMu.Unlock()
 		}
 
+		uptime := int64(0)
+		if state == libvirt.DOMAIN_RUNNING {
+			// A simple way to get uptime for VM is to check domain start time
+			// but libvirt API doesn't expose it directly in a simple way in this binding
+			// without complex XML parsing or extra calls.
+			// For now we'll use 0 or skip.
+		}
+
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
 			CPUs: uint(info.NrVirtCpu), CPUUsage: cpuUsage,
 			MemoryMB:    uint(info.MaxMem / 1024),
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
 			Image: "libvirt-image",
+			Uptime: uptime,
 			User:  user, Password: pass,
 		}, nil
 	}

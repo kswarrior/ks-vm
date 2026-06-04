@@ -334,6 +334,7 @@ type ContainerMetrics struct {
 	DiskUsed    uint64   `json:"disk_used"`
 	DiskTotal   uint64   `json:"disk_total"`
 	Status      string   `json:"status"`
+	Uptime      int64    `json:"uptime"`
 	Logs        string   `json:"logs"`
 	IPs         []string `json:"ips"`
 }
@@ -347,8 +348,9 @@ func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) 
 
 	var data struct {
 		Metadata struct {
-			Status string `json:"status"`
-			Memory struct {
+			Status    string `json:"status"`
+			StartedAt string `json:"started_at"`
+			Memory    struct {
 				Usage uint64 `json:"usage"`
 			} `json:"memory"`
 			CPU struct {
@@ -368,8 +370,16 @@ func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) 
 	}
 	json.NewDecoder(resp.Body).Decode(&data)
 
+	uptime := int64(0)
+	if data.Metadata.StartedAt != "" && data.Metadata.StartedAt != "0001-01-01T00:00:00Z" {
+		if t, err := time.Parse(time.RFC3339, data.Metadata.StartedAt); err == nil {
+			uptime = int64(time.Since(t).Seconds())
+		}
+	}
+
 	metrics := &ContainerMetrics{
 		Status:     strings.ToLower(data.Metadata.Status),
+		Uptime:     uptime,
 		MemoryUsed: data.Metadata.Memory.Usage / 1024 / 1024,
 	}
 
