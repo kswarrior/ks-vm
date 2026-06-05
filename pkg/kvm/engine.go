@@ -576,22 +576,13 @@ func (m *Manager) Restart(name string) error {
 
 // Exec runs a non-interactive command inside the guest.
 func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
-	// 1. Determine instance type from metadata
-	instType := "vm"
-	if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
-		var meta map[string]string
-		if err := json.Unmarshal(data, &meta); err == nil {
-			if t, ok := meta["type"]; ok {
-				instType = t
-			}
-		}
-	}
+	instType := m.getInstType(name)
 
 	if instType == "container" {
 		if running, _ := m.isContainerRunning(name); running {
-			// Wrap in shell to support operators like && and pipes
-			fullCmd := strings.Join(cmdArgs, " ")
-			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
+			// Use args directly for LXD exec
+			args := append([]string{"exec", name, "--"}, cmdArgs...)
+			cmd := exec.Command("lxc", args...)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
@@ -633,7 +624,6 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 				user = "ubuntu"
 			}
 
-			fullCmd := strings.Join(cmdArgs, " ")
 			var captured strings.Builder
 			buf := make([]byte, 4096)
 
@@ -650,25 +640,44 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			lowerOut := strings.ToLower(captured.String())
 			if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
 				stream.Send([]byte(user + "\n"))
-				captured.WriteString(user + "\n")
 				time.Sleep(800 * time.Millisecond)
-
-				// Capture password prompt if any
-				n, _ = stream.Recv(buf)
-				if n > 0 {
-					captured.Write(buf[:n])
-				}
-
 				stream.Send([]byte(pass + "\n"))
-				captured.WriteString("********\n") // Hide real password in output
 				time.Sleep(1500 * time.Millisecond)
+
+				// Clear buffer after login
+				n, _ = stream.Recv(buf)
+				captured.Reset()
 			}
 
+			// Clear line buffer with Ctrl+C
+			stream.Send([]byte{0x03, 0x03})
+			time.Sleep(200 * time.Millisecond)
+
+			// Build safe shell-escaped command for serial console
+			fullCmd := ""
+			for _, arg := range cmdArgs {
+				if strings.ContainsAny(arg, " \t\n\r\"'\\$") {
+					fullCmd += "'" + strings.ReplaceAll(arg, "'", "'\\''") + "' "
+				} else {
+					fullCmd += arg + " "
+				}
+			}
+			fullCmd = strings.TrimSpace(fullCmd)
+
 			// Use markers to isolate output
-			startMarker := "__KSVM_START__"
-			endMarker := "__KSVM_END__"
-			markedCmd := fmt.Sprintf("echo %s; %s; echo %s\n", startMarker, fullCmd, endMarker)
-			stream.Send([]byte(markedCmd))
+			startMarker := "__KSVM_S__"
+			endMarker := "__KSVM_E__"
+
+			// Send in smaller chunks to avoid buffer overflow on slow emulated UARTs
+			markedCmd := fmt.Sprintf(" echo %s; %s; echo %s\n", startMarker, fullCmd, endMarker)
+			for i := 0; i < len(markedCmd); i += 16 {
+				end := i + 16
+				if end > len(markedCmd) {
+					end = len(markedCmd)
+				}
+				stream.Send([]byte(markedCmd[i:end]))
+				time.Sleep(5 * time.Millisecond)
+			}
 
 			// Capture loop
 			captureDeadline := time.Now().Add(10 * time.Second)
@@ -677,19 +686,36 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 				if n > 0 {
 					captured.Write(buf[:n])
 				}
-				if strings.Contains(captured.String(), endMarker) {
+				if strings.Count(captured.String(), endMarker) >= 1 {
+					// Give it a tiny bit more time to finish the last echo
+					time.Sleep(100 * time.Millisecond)
+					n, _ = stream.Recv(buf)
+					if n > 0 {
+						captured.Write(buf[:n])
+					}
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
 
 			res := captured.String()
-			// We want to keep the full interaction for "real terminal" feel,
-			// but we can at least trim the ksvm markers.
+
+			// Isolation logic: find the LAST occurrence of startMarker to bypass echo
+			// and the LAST occurrence of endMarker to truncate correctly.
+			sIdx := strings.LastIndex(res, startMarker)
+			eIdx := strings.LastIndex(res, endMarker)
+
+			if sIdx != -1 && eIdx != -1 && eIdx > sIdx {
+				res = res[sIdx+len(startMarker) : eIdx]
+				// Clean up carriage returns and leading/trailing whitespace
+				res = strings.ReplaceAll(res, "\r", "")
+				res = strings.TrimSpace(res)
+				return res, nil
+			}
+
+			// Fallback: just return everything if markers not found correctly
 			res = strings.ReplaceAll(res, startMarker, "")
 			res = strings.ReplaceAll(res, endMarker, "")
-
-			// We don't strip ANSI anymore to allow color support in terminal
 			return res, nil
 		}
 		return "", err

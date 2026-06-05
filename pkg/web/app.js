@@ -498,15 +498,15 @@ async function runExec(cmd, isInit = false) {
 
         if (isInit) {
             // If it's init, we might have captured the login/banner
-            if (data.output) {
+            if (data.output && data.output.trim()) {
                 term.clear();
-                const formatted = data.output.replace(/\n/g, '\r\n');
-                term.write(formatted + "\r\n");
+                const formatted = data.output.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+                term.write(formatted.trim() + "\r\n");
             }
         } else {
             if (data.output) {
-                const formatted = data.output.replace(/\n/g, '\r\n');
-                term.write(formatted + "\r\n");
+                const formatted = data.output.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+                term.write(formatted.trim() + "\r\n");
             }
             if (data.error) term.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
         }
@@ -515,7 +515,7 @@ async function runExec(cmd, isInit = false) {
             term.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
         }
     } finally {
-        // Always show the prompt after command completion (or failure)
+        // Always show prompt on a clean new line
         term.write('\x1b[1;36mroot@ks:~# \x1b[0m');
     }
 }
