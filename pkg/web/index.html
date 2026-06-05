@@ -152,15 +152,8 @@
                 <div class="page-header">
                     <h1 id="exec-title" style="font-size: 1.75rem; font-weight: 800;">Terminal</h1>
                 </div>
-                <div class="card">
-                    <div class="form-group" style="margin-bottom:12px;">
-                        <label>Command</label>
-                        <div style="display:flex; gap:10px;">
-                            <input type="text" id="exec-command" placeholder="Enter shell command..." onkeydown="if(event.key==='Enter') runExec()">
-                            <button class="btn btn-primary" onclick="runExec()">Execute</button>
-                        </div>
-                    </div>
-                    <div id="terminal-container" style="background:#0f172a; padding:10px; border-radius:12px; min-height:400px;"></div>
+                <div class="card" style="padding: 10px;">
+                    <div id="terminal-container" style="background:#0f172a; padding:5px; border-radius:12px; min-height:500px;"></div>
                 </div>
             </div>
 

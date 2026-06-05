@@ -342,6 +342,7 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
 #terminal-container {
     width: 100%;
     overflow: hidden;
+    background: #0f172a;
 }
 
 .xterm {

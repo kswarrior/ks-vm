@@ -404,7 +404,6 @@ async function getSSH(name) {
         document.getElementById('exec-title').innerText = "SSH Setup: " + name;
         openExec(name);
         term.write(`Connecting to ${name} and running SSH setup...\r\n`);
-        document.getElementById('exec-command').value = "";
         showTab('exec');
 
         try {
@@ -428,6 +427,7 @@ async function getSSH(name) {
     });
 }
 
+let commandBuffer = "";
 function initTerminal() {
     if (term) return;
     term = new Terminal({
@@ -436,31 +436,57 @@ function initTerminal() {
         fontFamily: "'Fira Code', monospace",
         theme: {
             background: '#0f172a',
-            foreground: '#f8fafc'
+            foreground: '#f8fafc',
+            cursor: '#38bdf8'
         },
         convertEol: true
     });
     term.open(document.getElementById('terminal-container'));
+
+    term.onData(e => {
+        switch (e) {
+            case '\u0003': // Ctrl+C
+                term.write('^C');
+                commandBuffer = "";
+                term.write('\r\n\x1b[1;36mroot@ks:~# \x1b[0m');
+                break;
+            case '\r': // Enter
+                const cmd = commandBuffer;
+                commandBuffer = "";
+                term.write('\r\n');
+                if (cmd.trim()) {
+                    runExec(cmd);
+                } else {
+                    term.write('\x1b[1;36mroot@ks:~# \x1b[0m');
+                }
+                break;
+            case '\u007F': // Backspace (DEL)
+                if (commandBuffer.length > 0) {
+                    commandBuffer = commandBuffer.slice(0, -1);
+                    term.write('\b \b');
+                }
+                break;
+            default:
+                if (e >= String.fromCharCode(0x20) && e <= String.fromCharCode(0x7E) || e >= '\u00a0') {
+                    commandBuffer += e;
+                    term.write(e);
+                }
+        }
+    });
 }
 
 function openExec(name) {
     initTerminal();
     document.getElementById('exec-title').innerText = "Terminal: " + name;
     term.clear();
-    term.write(`\x1b[1;34mKS VM Terminal connected to ${name}\x1b[0m\r\n`);
-    document.getElementById('exec-command').value = "";
     showTab('exec');
+
+    // Prompt will be shown by runExec(..., true) once it finishes or if it starts
+    runExec("whoami", true);
 }
 
-async function runExec() {
+async function runExec(cmd, isInit = false) {
     const name = document.getElementById('exec-title').innerText.split(': ')[1];
-    const input = document.getElementById('exec-command');
-    const cmd = input.value;
-    if (!cmd) return;
-
-    term.write(`\x1b[1;32m$ ${cmd}\x1b[0m\r\n`);
-    term.write("\x1b[1;30m[RUNNING...]\x1b[0m\r\n");
-    input.value = "";
 
     try {
         const res = await fetch(`/api/v1/exec/${name}`, {
@@ -470,14 +496,27 @@ async function runExec() {
         });
         const data = await res.json();
 
-        if (data.output) {
-            // Replace \n with \r\n for xterm.js if not already handled
-            const formatted = data.output.replace(/\n/g, '\r\n');
-            term.write(formatted + "\r\n");
+        if (isInit) {
+            // If it's init, we might have captured the login/banner
+            if (data.output) {
+                term.clear();
+                const formatted = data.output.replace(/\n/g, '\r\n');
+                term.write(formatted + "\r\n");
+            }
+        } else {
+            if (data.output) {
+                const formatted = data.output.replace(/\n/g, '\r\n');
+                term.write(formatted + "\r\n");
+            }
+            if (data.error) term.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
         }
-        if (data.error) term.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
     } catch (e) {
-        term.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
+        if (!isInit) {
+            term.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
+        }
+    } finally {
+        // Always show the prompt after command completion (or failure)
+        term.write('\x1b[1;36mroot@ks:~# \x1b[0m');
     }
 }
 
@@ -750,14 +789,14 @@ async function fetchLogs(animate = false) {
     const data = await res.json();
     const list = document.getElementById('log-list');
     list.innerHTML = data.map(l => {
-        const actionHtml = typeof marked !== 'undefined' ? marked.parse(l.action) : l.action;
+        const actionHtml = typeof marked !== 'undefined' ? marked.parse(l.action).trim() : l.action;
         return `
             <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <div>
                     <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
-                    <div style="font-weight:700; font-size:0.9rem;">
-                        <span style="color:var(--primary);">${actionHtml.toUpperCase().replace(/<[^>]*>?/gm, '')}</span>
-                        on ${l.target}
+                    <div style="font-weight:700; font-size:0.9rem; display:flex; gap:8px; align-items:center;">
+                        <div class="log-action" style="color:var(--primary);">${actionHtml}</div>
+                        <span>on ${l.target}</span>
                     </div>
                 </div>
                 <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
