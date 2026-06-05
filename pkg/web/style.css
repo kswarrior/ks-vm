@@ -200,18 +200,22 @@ body {
 .metrics-row-flat {
     display: flex;
     align-items: center;
-    gap: 24px;
-    padding-top: 12px;
+    gap: 16px;
+    padding-top: 10px;
     border-top: 1px solid var(--border);
-    margin-top: 12px;
+    margin-top: 10px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
 }
 
 .metric-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.75rem;
+    gap: 6px;
+    font-size: 0.72rem;
     color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .metric-item b {
@@ -430,7 +434,7 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
     }
 
     .instance-metrics-compact {
-        padding: 24px 0 !important;
+        padding: 16px 0 !important;
         border-left: none !important;
         border-right: none !important;
         border-top: 1px solid var(--border) !important;
@@ -441,25 +445,25 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
     .instance-actions-compact {
         justify-content: space-between !important;
         display: flex !important;
-        padding-top: 16px;
+        padding-top: 12px;
     }
 
     .btn-icon svg {
-        width: 28px !important;
-        height: 28px !important;
+        width: 24px !important;
+        height: 24px !important;
     }
 
     .instance-main-info {
         width: 100% !important;
         display: flex !important;
-        margin-bottom: 8px;
+        margin-bottom: 4px;
     }
 
     .instance-card {
-        padding: 32px 24px !important;
-        margin-bottom: 24px !important;
-        border-radius: 20px !important;
-        min-height: 320px;
+        padding: 20px !important;
+        margin-bottom: 16px !important;
+        border-radius: 16px !important;
+        min-height: auto !important;
         display: flex;
         flex-direction: column;
         justify-content: center;

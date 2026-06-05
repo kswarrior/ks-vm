@@ -1038,7 +1038,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 				CPUs: 1, CPUUsage: lxdMetrics.CPUUsage,
 				MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
 				DiskUsage: int64(lxdMetrics.DiskUsed * 1024 * 1024 * 1024), DiskGB: uint(lxdMetrics.DiskTotal),
-				Image: "lxd-image",
+				Image:  "lxd-image",
 				Uptime: lxdMetrics.Uptime,
 			}, nil
 		}
@@ -1153,9 +1153,9 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			CPUs: uint(info.NrVirtCpu), CPUUsage: cpuUsage,
 			MemoryMB:    uint(info.MaxMem / 1024),
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
-			Image: "libvirt-image",
+			Image:  "libvirt-image",
 			Uptime: uptime,
-			User:  user, Password: pass,
+			User:   user, Password: pass,
 		}, nil
 	}
 
