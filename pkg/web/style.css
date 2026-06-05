@@ -339,10 +339,13 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
 
 .grid-classic { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
 
-#exec-output {
-    white-space: pre-wrap;
-    max-height: 400px;
-    overflow-y: auto;
+#terminal-container {
+    width: 100%;
+    overflow: hidden;
+}
+
+.xterm {
+    padding: 10px;
 }
 
 /* Toasts */

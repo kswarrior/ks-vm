@@ -634,29 +634,34 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			}
 
 			fullCmd := strings.Join(cmdArgs, " ")
+			var captured strings.Builder
+			buf := make([]byte, 4096)
+
+			// Initial wakeup
 			stream.Send([]byte("\n\n"))
 			time.Sleep(1 * time.Second)
 
-			// Read buffer to detect login prompt
-			buf := make([]byte, 4096)
+			// Read initial output (might be login prompt)
 			n, _ := stream.Recv(buf)
-			output := string(buf[:n])
-
-			lowerOut := strings.ToLower(output)
-			if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
-				stream.Send([]byte(user + "\n"))
-				time.Sleep(800 * time.Millisecond)
-				stream.Send([]byte(pass + "\n"))
-				time.Sleep(1500 * time.Millisecond)
+			if n > 0 {
+				captured.Write(buf[:n])
 			}
 
-			// Clear buffer
-			bufClear := make([]byte, 4096)
-			for {
-				n, _ = stream.Recv(bufClear)
-				if n == 0 {
-					break
+			lowerOut := strings.ToLower(captured.String())
+			if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
+				stream.Send([]byte(user + "\n"))
+				captured.WriteString(user + "\n")
+				time.Sleep(800 * time.Millisecond)
+
+				// Capture password prompt if any
+				n, _ = stream.Recv(buf)
+				if n > 0 {
+					captured.Write(buf[:n])
 				}
+
+				stream.Send([]byte(pass + "\n"))
+				captured.WriteString("********\n") // Hide real password in output
+				time.Sleep(1500 * time.Millisecond)
 			}
 
 			// Use markers to isolate output
@@ -666,8 +671,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			stream.Send([]byte(markedCmd))
 
 			// Capture loop
-			captureDeadline := time.Now().Add(6 * time.Second)
-			var captured strings.Builder
+			captureDeadline := time.Now().Add(10 * time.Second)
 			for time.Now().Before(captureDeadline) {
 				n, _ = stream.Recv(buf)
 				if n > 0 {
@@ -680,33 +684,13 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			}
 
 			res := captured.String()
-			if idx := strings.Index(res, startMarker); idx != -1 {
-				res = res[idx+len(startMarker):]
-			}
-			if idx := strings.Index(res, endMarker); idx != -1 {
-				res = res[:idx]
-			}
+			// We want to keep the full interaction for "real terminal" feel,
+			// but we can at least trim the ksvm markers.
+			res = strings.ReplaceAll(res, startMarker, "")
+			res = strings.ReplaceAll(res, endMarker, "")
 
-			// Final cleaning
-			res = strings.ReplaceAll(res, "\r", "")
-			res = stripANSI(res)
-
-			lines := strings.Split(res, "\n")
-			var filtered []string
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.Contains(line, startMarker) || strings.Contains(line, endMarker) || strings.Contains(line, "echo ") {
-					continue
-				}
-				filtered = append(filtered, line)
-			}
-
-			outputPreview := strings.Join(filtered, "\n")
-			if outputPreview == "" {
-				outputPreview = "(command executed, no output returned)"
-			}
-
-			return "Output:\n" + outputPreview, nil
+			// We don't strip ANSI anymore to allow color support in terminal
+			return res, nil
 		}
 		return "", err
 	}

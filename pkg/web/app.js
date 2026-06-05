@@ -1,4 +1,5 @@
 let allImages = [];
+let term = null;
 
 function toast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -399,9 +400,10 @@ async function getSSH(name) {
     openModal(`SSH Setup: ${name}`, bodyHTML, async () => {
         const url = document.getElementById('ssh-url').value;
         const port = document.getElementById('ssh-port').value;
-        const output = document.getElementById('exec-output');
+
         document.getElementById('exec-title').innerText = "SSH Setup: " + name;
-        output.innerText = `Connecting to ${name} and running SSH setup...\n`;
+        openExec(name);
+        term.write(`Connecting to ${name} and running SSH setup...\r\n`);
         document.getElementById('exec-command').value = "";
         showTab('exec');
 
@@ -413,22 +415,39 @@ async function getSSH(name) {
             });
             const data = await res.json();
             if (res.ok) {
-                output.innerText += "\n--- SETUP COMPLETE ---\n";
-                output.innerText += "Type: " + data.token + "\n";
-                output.innerText += "The script is running inside the instance.\n";
-                output.innerText += "Check results at https://ks-ssh.pages.dev\n";
+                term.write("\r\n\x1b[1;32m--- SETUP COMPLETE ---\x1b[0m\r\n");
+                term.write("Type: " + data.token + "\r\n");
+                term.write("The script is running inside the instance.\r\n");
+                term.write("Check results at https://ks-ssh.pages.dev\r\n");
             } else {
-                output.innerText += "\n--- SETUP FAILED ---\n" + data.error + "\n";
+                term.write("\r\n\x1b[1;31m--- SETUP FAILED ---\x1b[0m\r\n" + data.error + "\r\n");
             }
         } catch (e) {
-            output.innerText += "\n--- ERROR ---\n" + e.message + "\n";
+            term.write("\r\n\x1b[1;31m--- ERROR ---\x1b[0m\r\n" + e.message + "\r\n");
         }
     });
 }
 
+function initTerminal() {
+    if (term) return;
+    term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: "'Fira Code', monospace",
+        theme: {
+            background: '#0f172a',
+            foreground: '#f8fafc'
+        },
+        convertEol: true
+    });
+    term.open(document.getElementById('terminal-container'));
+}
+
 function openExec(name) {
+    initTerminal();
     document.getElementById('exec-title').innerText = "Terminal: " + name;
-    document.getElementById('exec-output').innerText = "";
+    term.clear();
+    term.write(`\x1b[1;34mKS VM Terminal connected to ${name}\x1b[0m\r\n`);
     document.getElementById('exec-command').value = "";
     showTab('exec');
 }
@@ -437,12 +456,11 @@ async function runExec() {
     const name = document.getElementById('exec-title').innerText.split(': ')[1];
     const input = document.getElementById('exec-command');
     const cmd = input.value;
-    const output = document.getElementById('exec-output');
     if (!cmd) return;
 
-    output.innerText += "> " + cmd + "\n[RUNNING...]\n";
+    term.write(`\x1b[1;32m$ ${cmd}\x1b[0m\r\n`);
+    term.write("\x1b[1;30m[RUNNING...]\x1b[0m\r\n");
     input.value = "";
-    output.scrollTop = output.scrollHeight;
 
     try {
         const res = await fetch(`/api/v1/exec/${name}`, {
@@ -451,15 +469,16 @@ async function runExec() {
             body: JSON.stringify({ command: cmd })
         });
         const data = await res.json();
-        // Remove the [RUNNING...] line
-        output.innerText = output.innerText.replace("[RUNNING...]\n", "");
-        if (data.output) output.innerText += data.output + "\n";
-        if (data.error) output.innerText += "ERROR: " + data.error + "\n";
+
+        if (data.output) {
+            // Replace \n with \r\n for xterm.js if not already handled
+            const formatted = data.output.replace(/\n/g, '\r\n');
+            term.write(formatted + "\r\n");
+        }
+        if (data.error) term.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
     } catch (e) {
-        output.innerText = output.innerText.replace("[RUNNING...]\n", "");
-        output.innerText += "FETCH FAILED: " + e.message + "\n";
+        term.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
     }
-    output.scrollTop = output.scrollHeight;
 }
 
 async function fetchImages(animate = false) {
@@ -730,13 +749,19 @@ async function fetchLogs(animate = false) {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
     const list = document.getElementById('log-list');
-    list.innerHTML = data.map(l => `
-        <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div>
-                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
-                <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
+    list.innerHTML = data.map(l => {
+        const actionHtml = typeof marked !== 'undefined' ? marked.parse(l.action) : l.action;
+        return `
+            <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
+                    <div style="font-weight:700; font-size:0.9rem;">
+                        <span style="color:var(--primary);">${actionHtml.toUpperCase().replace(/<[^>]*>?/gm, '')}</span>
+                        on ${l.target}
+                    </div>
+                </div>
+                <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
             </div>
-            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }

@@ -6,6 +6,9 @@
     <title>KS VM | Cloud Panel</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div id="splash">
@@ -157,7 +160,7 @@
                             <button class="btn btn-primary" onclick="runExec()">Execute</button>
                         </div>
                     </div>
-                    <pre id="exec-output" style="background:#0f172a; color:#f8fafc; padding:20px; border-radius:12px; font-family:'Fira Code', monospace; font-size:0.85rem; min-height:300px; line-height:1.5;"></pre>
+                    <div id="terminal-container" style="background:#0f172a; padding:10px; border-radius:12px; min-height:400px;"></div>
                 </div>
             </div>
 
