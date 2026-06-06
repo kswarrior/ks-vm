@@ -110,19 +110,19 @@ async function fetchInstances(animate = false) {
             const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
 
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
-            const typeLabel = vm.Type === 'container' ? 'LXD' : 'VM';
 
             const ipList = (vm.IPs && vm.IPs.length > 0) ? vm.IPs.join(', ') : 'internal';
+
+            let icon = '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>';
+            if (vm.Type === 'container') icon = '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>';
+            if (vm.Type === 'docker') icon = '<svg viewBox="0 0 24 24"><path d="M3.56,12L2.73,14H21.27L20.44,12H3.56M12,2L10,4H14L12,2M10,5L8,7H16L14,5H10M8,8L6,10H18L16,8H8M6,11L4.17,13H19.83L18,11H6Z" fill="currentColor"/></svg>';
 
             card.innerHTML = `
                 ${vm.Status === 'deploying' ? `<div class="overlay" id="deploy-overlay-${vm.Name}">DEPLOYING...</div>` : ''}
                 <div class="instance-card-header">
                     <div style="display:flex; align-items:center; gap:12px;">
                         <div class="instance-icon-small">
-                            ${vm.Type === 'container' ?
-                                '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>' :
-                                '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>'
-                            }
+                            ${icon}
                         </div>
                         <div>
                             <div class="instance-title-small">
@@ -212,6 +212,10 @@ function toggleDeployFields() {
     const note = document.getElementById('lxd-deploy-note');
     if (type === 'container') {
         note.style.display = 'block';
+        note.innerHTML = 'Note: For LXD, you can also type an alias like <b>ubuntu:24.04</b> in the search box if not in pool.';
+    } else if (type === 'docker') {
+        note.style.display = 'block';
+        note.innerHTML = 'Note: For Docker, you can type any image name like <b>nginx:latest</b> or <b>ubuntu</b>.';
     } else {
         note.style.display = 'none';
     }
@@ -229,6 +233,11 @@ function toggleAddImgFields() {
         urlLabel.innerText = "LXD Source (Format: ubuntu:24.04)";
         urlInput.placeholder = "e.g. ubuntu:24.04 or images:debian/12";
         help.innerText = "This will register an alias in the LXD image store.";
+    } else if (type === 'docker') {
+        nameLabel.innerText = "Docker Image Tag";
+        urlLabel.innerText = "Docker Image (e.g. nginx:latest)";
+        urlInput.placeholder = "nginx:latest or alpine";
+        help.innerText = "This will register a docker image reference.";
     } else {
         nameLabel.innerText = "Image Label";
         urlLabel.innerText = "Source URL (QCOW2)";

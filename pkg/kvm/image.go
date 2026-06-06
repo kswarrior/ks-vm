@@ -93,6 +93,9 @@ func ListImages() ([]ImageInfo, error) {
 		if strings.HasSuffix(name, ".lxd") {
 			imgType = "container"
 			name = strings.TrimSuffix(name, ".lxd")
+		} else if strings.HasSuffix(name, ".docker") {
+			imgType = "docker"
+			name = strings.TrimSuffix(name, ".docker")
 		} else if strings.HasSuffix(name, ".qcow2") {
 			name = strings.TrimSuffix(name, ".qcow2")
 		}
@@ -118,6 +121,9 @@ func RemoveImage(name string) error {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			// Try Container extension
 			path = filepath.Join(ImagesDir, name+".lxd")
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				path = filepath.Join(ImagesDir, name+".docker")
+			}
 		}
 	}
 

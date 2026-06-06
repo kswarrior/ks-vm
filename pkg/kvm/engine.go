@@ -33,6 +33,7 @@ type cpuStat struct {
 type Manager struct {
 	conn     *libvirt.Connect
 	lxd      *container.LXDClient
+	docker   *container.DockerClient
 	cpuCache map[string]cpuStat
 	statsMu  sync.RWMutex
 }
@@ -58,6 +59,7 @@ func NewManager() (*Manager, error) {
 	return &Manager{
 		conn:     conn,
 		lxd:      container.NewLXDClient(),
+		docker:   container.NewDockerClient(),
 		cpuCache: make(map[string]cpuStat),
 	}, nil
 }
@@ -458,6 +460,10 @@ func (m *Manager) AddImage(name, source string, imgType string) error {
 		os.MkdirAll(ImagesDir, 0755)
 		return os.WriteFile(filepath.Join(ImagesDir, name+".lxd"), []byte(source), 0644)
 	}
+	if imgType == "docker" {
+		os.MkdirAll(ImagesDir, 0755)
+		return os.WriteFile(filepath.Join(ImagesDir, name+".docker"), []byte(source), 0644)
+	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		_, err := DownloadImage(name, source)
 		return err
@@ -587,6 +593,13 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 			return string(out), err
 		}
 		return "", fmt.Errorf("container %s is not running", name)
+	}
+
+	if instType == "docker" {
+		args := append([]string{"exec", name}, cmdArgs...)
+		cmd := exec.Command("docker", args...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
 	}
 
 	domain, err := m.conn.LookupDomainByName(name)
@@ -1191,6 +1204,24 @@ func (m *Manager) List() ([]VMInfo, error) {
 		for _, name := range containers {
 			if info, err := m.Info(name); err == nil {
 				// Avoid duplicates if LXD name matches VM name
+				found := false
+				for _, existing := range infos {
+					if existing.Name == name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					infos = append(infos, *info)
+				}
+			}
+		}
+	}
+
+	// Containers from Docker
+	if containers, err := m.docker.ListContainers(); err == nil {
+		for _, name := range containers {
+			if info, err := m.Info(name); err == nil {
 				found := false
 				for _, existing := range infos {
 					if existing.Name == name {
