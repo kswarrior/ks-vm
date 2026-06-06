@@ -1,5 +1,6 @@
 let allImages = [];
-let term = null;
+let terminals = {};
+let currentTermName = null;
 
 function toast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -427,10 +428,10 @@ async function getSSH(name) {
     });
 }
 
-let commandBuffer = "";
-function initTerminal() {
-    if (term) return;
-    term = new Terminal({
+function getTerminal(name) {
+    if (terminals[name]) return terminals[name];
+
+    const t = new Terminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: "'Fira Code', monospace",
@@ -441,52 +442,127 @@ function initTerminal() {
         },
         convertEol: true
     });
-    term.open(document.getElementById('terminal-container'));
 
-    term.onData(e => {
+    const fitAddon = new FitAddon.FitAddon();
+    t.loadAddon(fitAddon);
+
+    const terminalObj = {
+        instance: t,
+        fitAddon: fitAddon,
+        buffer: "",
+        history: [],
+        historyIndex: -1,
+        container: document.createElement('div')
+    };
+    terminalObj.container.style.width = '100%';
+    terminalObj.container.style.height = '100%';
+
+    t.open(terminalObj.container);
+    setTimeout(() => fitAddon.fit(), 50);
+
+    t.onData(e => {
+        const activeObj = terminals[name];
+        if (!activeObj) return;
+
         switch (e) {
             case '\u0003': // Ctrl+C
-                term.write('^C');
-                commandBuffer = "";
-                term.write('\r\n\x1b[1;36mroot@ks:~# \x1b[0m');
+                t.write('^C');
+                activeObj.buffer = "";
+                activeObj.historyIndex = -1;
+                t.write('\r\n\x1b[1;36mroot@ks:~# \x1b[0m');
                 break;
             case '\r': // Enter
-                const cmd = commandBuffer;
-                commandBuffer = "";
-                term.write('\r\n');
+                const cmd = activeObj.buffer;
+                activeObj.buffer = "";
+                activeObj.historyIndex = -1;
+                t.write('\r\n');
                 if (cmd.trim()) {
-                    runExec(cmd);
+                    activeObj.history.unshift(cmd);
+                    if (activeObj.history.length > 50) activeObj.history.pop();
+                    runExec(name, cmd);
                 } else {
-                    term.write('\x1b[1;36mroot@ks:~# \x1b[0m');
+                    t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
                 }
                 break;
             case '\u007F': // Backspace (DEL)
-                if (commandBuffer.length > 0) {
-                    commandBuffer = commandBuffer.slice(0, -1);
-                    term.write('\b \b');
+                if (activeObj.buffer.length > 0) {
+                    activeObj.buffer = activeObj.buffer.slice(0, -1);
+                    t.write('\b \b');
+                }
+                break;
+            case '\u001b[A': // Up Arrow
+                if (activeObj.historyIndex < activeObj.history.length - 1) {
+                    activeObj.historyIndex++;
+                    const hCmd = activeObj.history[activeObj.historyIndex];
+                    // Clear current line
+                    for (let i = 0; i < activeObj.buffer.length; i++) t.write('\b \b');
+                    activeObj.buffer = hCmd;
+                    t.write(hCmd);
+                }
+                break;
+            case '\u001b[B': // Down Arrow
+                if (activeObj.historyIndex >= 0) {
+                    activeObj.historyIndex--;
+                    // Clear current line
+                    for (let i = 0; i < activeObj.buffer.length; i++) t.write('\b \b');
+                    if (activeObj.historyIndex >= 0) {
+                        const hCmd = activeObj.history[activeObj.historyIndex];
+                        activeObj.buffer = hCmd;
+                        t.write(hCmd);
+                    } else {
+                        activeObj.buffer = "";
+                    }
                 }
                 break;
             default:
                 if (e >= String.fromCharCode(0x20) && e <= String.fromCharCode(0x7E) || e >= '\u00a0') {
-                    commandBuffer += e;
-                    term.write(e);
+                    activeObj.buffer += e;
+                    t.write(e);
                 }
         }
     });
+
+    terminals[name] = terminalObj;
+    return terminalObj;
 }
 
 function openExec(name) {
-    initTerminal();
+    currentTermName = name;
+    const termObj = getTerminal(name);
+
     document.getElementById('exec-title').innerText = "Terminal: " + name;
-    term.clear();
+
+    const mainContainer = document.getElementById('terminal-container');
+    mainContainer.innerHTML = '';
+    mainContainer.appendChild(termObj.container);
+
     showTab('exec');
 
-    // Prompt will be shown by runExec(..., true) once it finishes or if it starts
-    runExec("whoami", true);
+    // Ensure terminal fits the new visible container
+    setTimeout(() => termObj.fitAddon.fit(), 100);
+
+    // If it's a fresh terminal, show prompt and run whoami
+    if (termObj.instance.rows === 0 || termObj.instance.buffer.active.length <= 1) {
+        termObj.instance.write('\x1b[1;36mroot@ks:~# \x1b[0m');
+        runExec(name, "whoami", true);
+    }
 }
 
-async function runExec(cmd, isInit = false) {
-    const name = document.getElementById('exec-title').innerText.split(': ')[1];
+window.addEventListener('resize', () => {
+    if (currentTermName && terminals[currentTermName]) {
+        terminals[currentTermName].fitAddon.fit();
+    }
+});
+
+async function runExec(name, cmd, isInit = false) {
+    // Fallback to currentTermName if name not provided (useful for tests)
+    if (!name) name = currentTermName;
+    const termObj = terminals[name];
+    if (!termObj) {
+        console.error("Terminal not found for:", name);
+        return;
+    }
+    const t = termObj.instance;
 
     try {
         const res = await fetch(`/api/v1/exec/${name}`, {
@@ -497,28 +573,31 @@ async function runExec(cmd, isInit = false) {
         const data = await res.json();
 
         if (isInit) {
-            // If it's init, we might have captured the login/banner
             if (data.output && data.output.trim()) {
-                term.clear();
+                t.clear();
                 const formatted = data.output.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
-                term.write(formatted.trim() + "\r\n");
+                t.write(formatted.trim() + "\r\n");
+                t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
             }
         } else {
             if (data.output) {
+                // Ensure we have a clean line if there was partial output
                 const formatted = data.output.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
-                term.write(formatted.trim() + "\r\n");
+                t.write(formatted.trim() + "\r\n");
             }
-            if (data.error) term.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
+            if (data.error) t.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
+            t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
         }
     } catch (e) {
         if (!isInit) {
-            term.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
+            t.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
+            t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
         }
-    } finally {
-        // Always show prompt on a clean new line
-        term.write('\x1b[1;36mroot@ks:~# \x1b[0m');
     }
 }
+
+// Global exposure for Playwright
+window.runExec = runExec;
 
 async function fetchImages(animate = false) {
     const res = await fetch('/api/v1/images');

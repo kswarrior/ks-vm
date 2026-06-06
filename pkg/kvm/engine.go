@@ -606,7 +606,7 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
 	if err != nil {
 		lowerErr := strings.ToLower(err.Error())
-		if strings.Contains(lowerErr, "guest agent") || strings.Contains(lowerErr, "not responding") || strings.Contains(lowerErr, "not configured") {
+		if strings.Contains(lowerErr, "guest agent") || strings.Contains(lowerErr, "not responding") || strings.Contains(lowerErr, "not configured") || strings.Contains(lowerErr, "not supported") {
 			// Fallback to Serial Console Injection
 			stream, sErr := m.conn.NewStream(0)
 			if sErr != nil {
