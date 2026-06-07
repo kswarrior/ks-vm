@@ -94,7 +94,7 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 
 	if opts.InstanceType == "vm" {
 		isVM = true
-	} else if opts.InstanceType == "container" {
+	} else if opts.InstanceType == "container" || opts.InstanceType == "docker" {
 		isVM = false
 	} else if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
 		// Auto-detection from absolute path
@@ -150,6 +150,16 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		markerPath := filepath.Join(ImagesDir, baseImage+".lxd")
 		if data, err := os.ReadFile(markerPath); err == nil {
 			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
+		}
+
+		// Check for .docker marker
+		dockerMarker := filepath.Join(ImagesDir, baseImage+".docker")
+		if data, err := os.ReadFile(dockerMarker); err == nil {
+			return m.DeployDocker(name, strings.TrimSpace(string(data)), opts)
+		}
+
+		if opts.InstanceType == "docker" {
+			return m.DeployDocker(name, baseImage, opts)
 		}
 
 		if strings.HasPrefix(baseImage, "docker://") || strings.Contains(baseImage, ":") || opts.InstanceType == "container" {
@@ -243,6 +253,40 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	return nil
 }
 
+// DeployDocker provisions a container using Docker.
+func (m *Manager) DeployDocker(name, image string, opts DeployOptions) error {
+	image = strings.TrimPrefix(image, "docker://")
+	if opts.MemoryMB == 0 {
+		opts.MemoryMB = 512
+	}
+	if opts.CPUs == 0 {
+		opts.CPUs = 1
+	}
+
+	if err := m.docker.PullImage(image); err != nil {
+		return err
+	}
+
+	if _, err := m.docker.CreateContainer(name, image, opts.CPUs, opts.MemoryMB); err != nil {
+		return err
+	}
+
+	if err := m.docker.StartContainer(name); err != nil {
+		return err
+	}
+
+	// Save metadata
+	instancesDir := m.instancePath(name)
+	os.MkdirAll(instancesDir, 0755)
+	meta := map[string]string{
+		"type": "docker",
+	}
+	metaData, _ := json.Marshal(meta)
+	os.WriteFile(m.instancePath(name, "meta.json"), metaData, 0600)
+
+	return nil
+}
+
 // DeployContainer provisions a container instance using LXD.
 func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error {
 	image = strings.TrimPrefix(image, "docker://")
@@ -329,6 +373,9 @@ func (m *Manager) Launch(name string) error {
 	if instType == "container" {
 		return m.lxd.ControlContainer(name, "start")
 	}
+	if instType == "docker" {
+		return m.docker.StartContainer(name)
+	}
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
@@ -350,6 +397,9 @@ func (m *Manager) Stop(name string) error {
 
 	if instType == "container" {
 		return m.lxd.ControlContainer(name, "stop")
+	}
+	if instType == "docker" {
+		return m.docker.StopContainer(name)
 	}
 
 	domain, err := m.conn.LookupDomainByName(name)
@@ -407,6 +457,11 @@ func (m *Manager) UpdateInstance(oldName, newName string, opts DeployOptions) er
 		return nil
 	}
 
+	// Docker Update (Simple check if it exists)
+	if instType := m.getInstType(oldName); instType == "docker" {
+		return fmt.Errorf("updating Docker resources not yet supported in this prototype")
+	}
+
 	return fmt.Errorf("instance %s not found", oldName)
 }
 
@@ -434,6 +489,12 @@ func (m *Manager) Delete(name string) error {
 
 	if instType == "container" {
 		if err := m.lxd.ControlContainer(name, "delete"); err != nil {
+			return err
+		}
+		return os.RemoveAll(m.instancePath(name))
+	}
+	if instType == "docker" {
+		if err := m.docker.RemoveContainer(name); err != nil {
 			return err
 		}
 		return os.RemoveAll(m.instancePath(name))

@@ -1,27 +1,28 @@
-# KS VM ⚡ Hybrid Cloud & Container Stack
+# KS VM ⚡ Triple-Stack Hybrid Virtualization
 
-KS VM is a professional-grade, high-performance virtualization and container management platform built in Go. It provides a unified, glassmorphic interface to manage the full spectrum of compute: **KVM Virtual Machines**, **LXD System Containers**, and **Docker Application Containers**.
+KS VM is a professional-grade, high-performance hybrid cloud manager built in Go. It offers a single, unified pane of glass to manage **KVM/QEMU Virtual Machines**, **LXD System Containers**, and **Docker Application Containers**.
 
 ![KS VM Dashboard](https://raw.githubusercontent.com/ks-vm/ks-vm/main/screenshots/dashboard.png)
 
 ## 🌟 Why KS VM is the Best?
 
-In a crowded market of virtualization tools, KS VM stands out as the ultimate "Triple Threat" for systems engineers and developers:
+In the evolving landscape of cloud infrastructure, KS VM stands as the definitive "Triple Threat" management solution:
 
-1.  **Unified Hybrid Architecture:** Stop switching between tools. Manage full hardware-isolated VMs (KVM), high-density system containers (LXD), and standardized application microservices (Docker) from a single glassmorphic pane.
-2.  **Deterministic Reliability:** Unlike other wrappers, KS VM utilizes a persistent `meta.json` source-of-truth for every instance. Whether you're starting, stopping, or executing code, the system knows exactly how to route the command to the correct provider.
-3.  **Intelligent Execution Fallback:** Never lose access to your VMs. If the QEMU Guest Agent fails, KS VM automatically falls back to an advanced **Serial Console Injection** mechanism with automated login, ensuring you always have a shell.
-4.  **Zero-Dependency Portability:** KS VM is compiled into a single binary. All frontend assets (HTML/CSS/JS) are embedded via `go:embed`. Deploying your cloud control panel is as simple as copying one file.
-5.  **Professional-Grade UX:** Experience ultra-fast, flicker-free updates with our **Optimistic UI** pattern. Actions like "Deploy" or "Stop" reflect in the UI instantly while the backend handles the heavy lifting.
+1.  **True Hybrid Flexibility:** Stop switching between `virt-manager`, `lxc`, and `docker` CLI. KS VM unifies the three most powerful Linux virtualization technologies into one responsive dashboard.
+2.  **Deterministic State Management:** Every instance, whether a VM or a container, is tracked via a persistent `meta.json` source-of-truth. This ensures lifecycle actions (Start, Stop, Exec) are routed with 100% accuracy.
+3.  **Resilient Out-of-Band Access:** Never get locked out. If the QEMU Guest Agent is missing or unresponsive, KS VM automatically triggers an **Automated Serial Console Injection** with credentials login, providing shell access where others fail.
+4.  **Optimistic, High-Density UX:** Our frontend utilizes an **Optimistic UI pattern** with surgical DOM updates. Experience instant feedback on deployments and flicker-free resource monitoring even on high-latency connections.
+5.  **Interactive Session Isolation:** The integrated **xterm.js terminal** provides independent, persistent sessions. Switch between a Docker microservice and a full KVM server without losing your command history or output buffer.
+6.  **Single-Binary Portability:** Compiled with `go:embed`, KS VM is a self-contained ecosystem. No external web server or asset directory required—just one binary to rule them all.
 
 ## 🚀 Key Features
 
-- **Triple Compute Backend:** Simultaneously manage KVM/QEMU, LXC/LXD, and Docker containers.
-- **Interactive xterm.js Terminal:** A "real shell" experience inside your browser. Supports ANSI colors, command history (Up/Down arrows), local echo, and keyboard shortcuts (Ctrl+C, Backspace).
-- **Modern Glassmorphism UI:** A stunning, high-density dashboard that is fully mobile-responsive. Swipe through metrics on your phone or manage clusters on your desktop.
-- **Real-Time Observability:** Professional host monitoring using **Chart.js**. Track CPU load averages, RAM distribution, Disk I/O, and Network throughput (RX/TX) in real-time.
-- **Persistent SSH Infrastructure:** One-click setup for reverse SSH tunnels using custom ports and tokens, designed to survive session timeouts.
-- **Gateway Multiplexer:** Built-in TCP gateway for routing external traffic to internal instances using custom headers.
+- **Triple Compute Backend:** Native integration for KVM/QEMU, LXC/LXD, and Docker.
+- **Modern Glassmorphism UI:** A stunning, professional dashboard designed for both desktop power-users and mobile administrators.
+- **Real-Time Observability:** High-fidelity host monitoring using **Chart.js** for CPU Load (1/5/15m), RAM distribution, Disk usage, and Network throughput.
+- **Interactive xterm.js Terminal:** Full ANSI color support, command history (Up/Down), local echo, and native keyboard handling.
+- **Persistent SSH Infrastructure:** One-click reverse SSH tunnel setup with custom port and token/URL configuration.
+- **Gateway Multiplexer:** A built-in TCP gateway for routing traffic to internal instances based on custom headers.
 
 ## 🛠 Installation
 
@@ -61,24 +62,22 @@ cd ks-vm
 
 ## 🖥 Web Interface
 
-The KS VM Daemon includes a professional, responsive glassmorphic dashboard.
+The KS VM dashboard is optimized for efficiency and aesthetics.
 
 ### Real Shell Experience
-The **RUN CODE** action opens a persistent terminal powered by `xterm.js`. It features session isolation, meaning you can switch between instances without losing your command history or output buffer.
+The **RUN CODE** feature provides a persistent shell. It handles nested shell characters and complex escaping, ensuring commands like `mkdir -p /path/to/dir` work flawlessly across all architectures.
 
-### Host Monitoring
-- **CPU:** Real-time percentage across all logical cores.
-- **RAM/Disk:** Visual doughnut/pie charts for precise resource allocation.
-- **Load Average:** 1, 5, and 15-minute system load metrics.
+### System Dashboard
+Track your host's health with sub-second precision. Includes Kernel version, Platform identification, Active instance counts, and detailed Uptime tracking.
 
 ## 🏗 Architecture
 
-KS VM is designed for modularity and speed:
-- **KVM Driver:** High-performance hardware virtualization via `libvirt`.
-- **LXD Driver:** System containerization via Unix socket API.
-- **Docker Driver:** Application containerization via Docker socket.
-- **REST API:** High-concurrency Gin-powered v1 API.
-- **Deterministic Metadata:** Instance state managed via early-persistence `meta.json`.
+KS VM is designed for modularity and extreme speed:
+- **KVM Driver:** Leverages `libvirt` for hardware-accelerated virtualization.
+- **LXD Driver:** High-density system containers via Unix socket REST API.
+- **Docker Driver:** Standardized application containers via Docker Engine API.
+- **REST API:** High-concurrency Gin-powered backend.
+- **Deterministic Metadata:** Instance identity persists across reboots via `meta.json`.
 
 ---
-*Developed for high-availability cloud infrastructure and modern DevOps workflows.*
+*Built for the next generation of cloud infrastructure and DevOps excellence.*
