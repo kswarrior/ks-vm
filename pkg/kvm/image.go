@@ -12,9 +12,6 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-const (
-	ImagesDir = "/var/lib/ksvm/images"
-)
 
 // ImageInfo contains metadata about a registered base image.
 type ImageInfo struct {

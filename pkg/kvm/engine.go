@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	BaseDir = "/var/lib/ksvm"
 )
 
 type cpuStat struct {
@@ -1124,6 +1123,22 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 				DiskUsage: int64(lxdMetrics.DiskUsed * 1024 * 1024 * 1024), DiskGB: uint(lxdMetrics.DiskTotal),
 				Image:  "lxd-image",
 				Uptime: lxdMetrics.Uptime,
+			}, nil
+		}
+	}
+
+	if instType == "docker" {
+		metrics, err := m.docker.GetContainerMetrics(name)
+		if err == nil {
+			ips := metrics.IPs
+			if len(ips) == 0 {
+				ips = []string{"bridge"}
+			}
+			return &VMInfo{
+				Name: name, Status: metrics.Status, Type: "docker", IPs: ips,
+				CPUs: 1, MemoryMB: uint(metrics.MemoryTotal),
+				Image: "docker-image",
+				Uptime: metrics.Uptime,
 			}, nil
 		}
 	}
