@@ -12,9 +12,6 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-const (
-	ImagesDir = "/var/lib/ksvm/images"
-)
 
 // ImageInfo contains metadata about a registered base image.
 type ImageInfo struct {
@@ -93,6 +90,9 @@ func ListImages() ([]ImageInfo, error) {
 		if strings.HasSuffix(name, ".lxd") {
 			imgType = "container"
 			name = strings.TrimSuffix(name, ".lxd")
+		} else if strings.HasSuffix(name, ".docker") {
+			imgType = "docker"
+			name = strings.TrimSuffix(name, ".docker")
 		} else if strings.HasSuffix(name, ".qcow2") {
 			name = strings.TrimSuffix(name, ".qcow2")
 		}
@@ -113,7 +113,15 @@ func ListImages() ([]ImageInfo, error) {
 func RemoveImage(name string) error {
 	path := filepath.Join(ImagesDir, name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// Try VM extension
 		path = filepath.Join(ImagesDir, name+".qcow2")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			// Try Container extension
+			path = filepath.Join(ImagesDir, name+".lxd")
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				path = filepath.Join(ImagesDir, name+".docker")
+			}
+		}
 	}
 
 	return os.Remove(path)

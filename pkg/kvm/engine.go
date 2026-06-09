@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,6 @@ import (
 )
 
 const (
-	BaseDir = "/var/lib/ksvm"
 )
 
 type cpuStat struct {
@@ -32,8 +32,17 @@ type cpuStat struct {
 type Manager struct {
 	conn     *libvirt.Connect
 	lxd      *container.LXDClient
+	docker   *container.DockerClient
 	cpuCache map[string]cpuStat
 	statsMu  sync.RWMutex
+}
+
+func (m *Manager) instancePath(name string, sub ...string) string {
+	base := filepath.Join(BaseDir, "instances", name)
+	if len(sub) > 0 {
+		return filepath.Join(append([]string{base}, sub...)...)
+	}
+	return base
 }
 
 // NewManager creates a new Manager and connects to the local libvirt and LXD daemons.
@@ -49,6 +58,7 @@ func NewManager() (*Manager, error) {
 	return &Manager{
 		conn:     conn,
 		lxd:      container.NewLXDClient(),
+		docker:   container.NewDockerClient(),
 		cpuCache: make(map[string]cpuStat),
 	}, nil
 }
@@ -75,13 +85,15 @@ type DeployOptions struct {
 // Deploy creates a new VM or Container instance.
 func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	m.setDeployingStatus(name)
+	defer m.clearDeployingStatus(name)
+
 	// 1. Image Type Detection & Resolution
 	var imagePath string
 	isVM := false
 
 	if opts.InstanceType == "vm" {
 		isVM = true
-	} else if opts.InstanceType == "container" {
+	} else if opts.InstanceType == "container" || opts.InstanceType == "docker" {
 		isVM = false
 	} else if _, err := os.Stat(baseImage); err == nil && !strings.HasPrefix(baseImage, "docker://") {
 		// Auto-detection from absolute path
@@ -89,7 +101,21 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 		isVM = true
 	}
 
-	if !isVM {
+	if isVM && imagePath == "" {
+		// Resolve VM image path from pool
+		paths := []string{
+			filepath.Join(ImagesDir, baseImage),
+			filepath.Join(ImagesDir, baseImage+".qcow2"),
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				imagePath = p
+				break
+			}
+		}
+	}
+
+	if opts.InstanceType == "" && !isVM {
 		// Image resolution for either implicit or explicit types
 		paths := []string{
 			filepath.Join(ImagesDir, baseImage),
@@ -125,17 +151,40 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 			return m.DeployContainer(name, strings.TrimSpace(string(data)), opts)
 		}
 
+		// Check for .docker marker
+		dockerMarker := filepath.Join(ImagesDir, baseImage+".docker")
+		if data, err := os.ReadFile(dockerMarker); err == nil {
+			return m.DeployDocker(name, strings.TrimSpace(string(data)), opts)
+		}
+
+		if opts.InstanceType == "docker" {
+			return m.DeployDocker(name, baseImage, opts)
+		}
+
 		if strings.HasPrefix(baseImage, "docker://") || strings.Contains(baseImage, ":") || opts.InstanceType == "container" {
 			return m.DeployContainer(name, baseImage, opts)
 		}
 		return fmt.Errorf("base image %s not found as VM image, and does not look like a container image", baseImage)
 	}
 
-	// 3. Ensure instances directory exists
-	instancesDir := filepath.Join(BaseDir, "instances", name)
+	// 3. Ensure instances directory exists and write metadata early
+	instancesDir := m.instancePath(name)
 	if err := os.MkdirAll(instancesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create instances directory: %v", err)
 	}
+
+	// Always save type to meta.json early for identification
+	meta := map[string]string{
+		"type": "vm",
+	}
+	if opts.User != "" {
+		meta["user"] = opts.User
+	}
+	if opts.Password != "" {
+		meta["password"] = opts.Password
+	}
+	metaData, _ := json.Marshal(meta)
+	os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 
 	// Cleanup on failure
 	deployed := false
@@ -164,15 +213,6 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 			return err
 		}
 		configDrivePath = iso
-
-		// Save credentials and type to meta.json
-		meta := map[string]string{
-			"user":     opts.User,
-			"password": opts.Password,
-			"type":     "vm",
-		}
-		metaData, _ := json.Marshal(meta)
-		os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
 	}
 
 	// 6. Generate XML
@@ -209,7 +249,39 @@ func (m *Manager) Deploy(name, baseImage string, opts DeployOptions) error {
 	}
 
 	deployed = true
-	m.clearDeployingStatus(name)
+	return nil
+}
+
+// DeployDocker provisions a container using Docker.
+func (m *Manager) DeployDocker(name, image string, opts DeployOptions) error {
+	image = strings.TrimPrefix(image, "docker://")
+	if opts.MemoryMB == 0 {
+		opts.MemoryMB = 512
+	}
+	if opts.CPUs == 0 {
+		opts.CPUs = 1
+	}
+
+	if err := m.docker.PullImage(image); err != nil {
+		return err
+	}
+
+	if _, err := m.docker.CreateContainer(name, image, opts.CPUs, opts.MemoryMB); err != nil {
+		return err
+	}
+
+	if err := m.docker.StartContainer(name); err != nil {
+		return err
+	}
+
+	// Save metadata
+	instancesDir := m.instancePath(name)
+	os.MkdirAll(instancesDir, 0755)
+	meta := map[string]string{
+		"type": "docker",
+	}
+	metaData, _ := json.Marshal(meta)
+	os.WriteFile(m.instancePath(name, "meta.json"), metaData, 0600)
 
 	return nil
 }
@@ -232,15 +304,14 @@ func (m *Manager) DeployContainer(name, image string, opts DeployOptions) error 
 	}
 
 	// Save type to meta.json
-	instancesDir := filepath.Join(BaseDir, "instances", name)
+	instancesDir := m.instancePath(name)
 	os.MkdirAll(instancesDir, 0755)
 	meta := map[string]string{
 		"type": "container",
 	}
 	metaData, _ := json.Marshal(meta)
-	os.WriteFile(filepath.Join(instancesDir, "meta.json"), metaData, 0600)
+	os.WriteFile(m.instancePath(name, "meta.json"), metaData, 0600)
 
-	m.clearDeployingStatus(name)
 	return nil
 }
 
@@ -268,8 +339,7 @@ func (m *Manager) isDeploying(name string) bool {
 }
 
 func (m *Manager) updateContainerStatus(name, status string) {
-	destDir := filepath.Join(BaseDir, "containers", name)
-	metaPath := filepath.Join(destDir, "meta.json")
+	metaPath := m.instancePath(name, "meta.json")
 	metaData, err := os.ReadFile(metaPath)
 	if err == nil {
 		var meta map[string]interface{}
@@ -281,48 +351,68 @@ func (m *Manager) updateContainerStatus(name, status string) {
 	}
 }
 
+// getInstType returns "vm" or "container" from meta.json
+func (m *Manager) getInstType(name string) string {
+	instType := "vm"
+	if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
+		var meta map[string]string
+		if err := json.Unmarshal(data, &meta); err == nil {
+			if t, ok := meta["type"]; ok {
+				return t
+			}
+		}
+	}
+	return instType
+}
+
 // Launch starts a stopped VM or Container.
 func (m *Manager) Launch(name string) error {
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		return m.lxd.ControlContainer(name, "start")
+	}
+	if instType == "docker" {
+		return m.docker.StartContainer(name)
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		isActive, err := domain.IsActive()
-		if err != nil {
-			return err
-		}
-		if isActive {
-			return fmt.Errorf("domain %s is already running", name)
-		}
-		return domain.Create()
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
-
-	// Try LXD
-	if err := m.lxd.ControlContainer(name, "start"); err == nil {
-		return nil
+	isActive, err := domain.IsActive()
+	if err != nil {
+		return err
 	}
-
-	return fmt.Errorf("instance %s not found", name)
+	if isActive {
+		return fmt.Errorf("domain %s is already running", name)
+	}
+	return domain.Create()
 }
 
 // Stop gracefully shuts down a VM or Container.
 func (m *Manager) Stop(name string) error {
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		return m.lxd.ControlContainer(name, "stop")
+	}
+	if instType == "docker" {
+		return m.docker.StopContainer(name)
+	}
+
 	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		isActive, err := domain.IsActive()
-		if err != nil {
-			return err
-		}
-		if !isActive {
-			return fmt.Errorf("domain %s is not running", name)
-		}
-		return domain.Shutdown()
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
-
-	// Try LXD
-	if err := m.lxd.ControlContainer(name, "stop"); err == nil {
-		return nil
+	isActive, err := domain.IsActive()
+	if err != nil {
+		return err
 	}
-
-	return fmt.Errorf("instance %s not found", name)
+	if !isActive {
+		return fmt.Errorf("domain %s is not running", name)
+	}
+	return domain.Shutdown()
 }
 
 // Suspend pauses a running VM.
@@ -366,6 +456,11 @@ func (m *Manager) UpdateInstance(oldName, newName string, opts DeployOptions) er
 		return nil
 	}
 
+	// Docker Update (Simple check if it exists)
+	if instType := m.getInstType(oldName); instType == "docker" {
+		return fmt.Errorf("updating Docker resources not yet supported in this prototype")
+	}
+
 	return fmt.Errorf("instance %s not found", oldName)
 }
 
@@ -382,30 +477,41 @@ type VMInfo struct {
 	DiskGB      uint
 	DiskUsage   int64
 	Image       string
+	Uptime      int64  `json:"uptime"`
 	User        string `json:"user,omitempty"`
 	Password    string `json:"password,omitempty"`
 }
 
 // Delete stops, destroys, and removes the VM/Container and its storage.
 func (m *Manager) Delete(name string) error {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		isActive, err := domain.IsActive()
-		if err == nil && isActive {
-			domain.Destroy()
-		}
-		if err := domain.Undefine(); err != nil {
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		if err := m.lxd.ControlContainer(name, "delete"); err != nil {
 			return err
 		}
-		return os.RemoveAll(filepath.Join(BaseDir, "instances", name))
+		return os.RemoveAll(m.instancePath(name))
+	}
+	if instType == "docker" {
+		if err := m.docker.RemoveContainer(name); err != nil {
+			return err
+		}
+		return os.RemoveAll(m.instancePath(name))
 	}
 
-	// Try LXD
-	if err := m.lxd.ControlContainer(name, "delete"); err == nil {
-		return nil
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
 
-	return fmt.Errorf("instance %s not found", name)
+	isActive, err := domain.IsActive()
+	if err == nil && isActive {
+		domain.Destroy()
+	}
+	if err := domain.Undefine(); err != nil {
+		return err
+	}
+	return os.RemoveAll(m.instancePath(name))
 }
 
 // AddImage registers a base cloud image.
@@ -413,6 +519,10 @@ func (m *Manager) AddImage(name, source string, imgType string) error {
 	if imgType == "container" {
 		os.MkdirAll(ImagesDir, 0755)
 		return os.WriteFile(filepath.Join(ImagesDir, name+".lxd"), []byte(source), 0644)
+	}
+	if imgType == "docker" {
+		os.MkdirAll(ImagesDir, 0755)
+		return os.WriteFile(filepath.Join(ImagesDir, name+".docker"), []byte(source), 0644)
 	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		_, err := DownloadImage(name, source)
@@ -433,10 +543,25 @@ func (m *Manager) RemoveImage(name string) error {
 }
 
 // SetupSSH initializes a reverse tunnel for SSH access inside the guest.
-func (m *Manager) SetupSSH(name string) (string, error) {
-	// Use a double-nohup fork wrapper to ensure the process survives session exit
-	script := fmt.Sprintf("curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port 3030 --url vm-ks-%s", name)
-	cmdStr := fmt.Sprintf("nohup sh -c 'nohup %s > /tmp/ssh.log 2>&1 &' > /dev/null 2>&1 &", script)
+func (m *Manager) SetupSSH(name string, port string, url string) (string, error) {
+	if port == "" {
+		port = "3030"
+	}
+
+	// Ensure curl is installed first, then run the setup script in background
+	script := fmt.Sprintf("apt-get update && apt-get install -y curl || yum install -y curl; curl -sSf https://ks-ssh.pages.dev/get.sh | sh -s -- run --port %s", port)
+	if url != "" {
+		script += fmt.Sprintf(" --url %s", url)
+	}
+
+	// Run the setup in the foreground so the user sees progress, but use nohup for the actual tunnel
+	cmdStr := fmt.Sprintf("sh -c '%s'", script)
+
+	// Determine token for UI feedback
+	token := "custom"
+	if url == "" {
+		token = "random"
+	}
 
 	domain, err := m.conn.LookupDomainByName(name)
 	if err == nil {
@@ -455,13 +580,34 @@ func (m *Manager) SetupSSH(name string) (string, error) {
 		if err := domain.OpenConsole("", stream, libvirt.DOMAIN_CONSOLE_FORCE); err != nil {
 			return "", err
 		}
-		// Inject the command
+		// Inject the command with automated login
+		info, _ := m.Info(name)
+		user := info.User
+		pass := info.Password
+		if user == "" {
+			user = "ubuntu"
+		}
+
 		stream.Send([]byte("\n\n"))
 		time.Sleep(1 * time.Second)
+
+		// Read buffer to detect login prompt
+		buf := make([]byte, 4096)
+		n, _ := stream.Recv(buf)
+		output := string(buf[:n])
+
+		lowerOut := strings.ToLower(output)
+		if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
+			stream.Send([]byte(user + "\n"))
+			time.Sleep(800 * time.Millisecond)
+			stream.Send([]byte(pass + "\n"))
+			time.Sleep(1500 * time.Millisecond)
+		}
+
 		stream.Send([]byte(cmdStr + "\n"))
 		time.Sleep(1 * time.Second)
 
-		return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+		return token, nil
 	}
 
 	// For containers, m.Exec is native (nsenter)
@@ -469,42 +615,56 @@ func (m *Manager) SetupSSH(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to run SSH setup inside container: %v", err)
 	}
-	return fmt.Sprintf("ks-lt-vm-ks-%s", name), nil
+	return token, nil
 }
 
 func (m *Manager) Restart(name string) error {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err == nil {
-		if err := domain.Reboot(0); err != nil {
-			isActive, _ := domain.IsActive()
-			if isActive {
-				return domain.Reset(0)
-			}
-			return err
-		}
-		return nil
+	instType := m.getInstType(name)
+
+	if instType == "container" {
+		return m.lxd.ControlContainer(name, "restart")
 	}
 
-	destDir := filepath.Join(BaseDir, "containers", name)
-	if _, err := os.Stat(destDir); err == nil {
-		m.Stop(name)
-		return m.Launch(name)
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return fmt.Errorf("instance %s not found: %v", name, err)
 	}
-	return fmt.Errorf("instance %s not found", name)
+
+	if err := domain.Reboot(0); err != nil {
+		isActive, _ := domain.IsActive()
+		if isActive {
+			return domain.Reset(0)
+		}
+		return err
+	}
+	return nil
 }
 
 // Exec runs a non-interactive command inside the guest.
 func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
-	domain, err := m.conn.LookupDomainByName(name)
-	if err != nil {
-		// Try LXD
+	instType := m.getInstType(name)
+
+	if instType == "container" {
 		if running, _ := m.isContainerRunning(name); running {
-			fullCmd := strings.Join(cmdArgs, " ")
-			cmd := exec.Command("lxc", "exec", name, "--", "/bin/sh", "-c", fullCmd)
+			// Use args directly for LXD exec
+			args := append([]string{"exec", name, "--"}, cmdArgs...)
+			cmd := exec.Command("lxc", args...)
 			out, err := cmd.CombinedOutput()
 			return string(out), err
 		}
-		return "", fmt.Errorf("instance %s not found or not running", name)
+		return "", fmt.Errorf("container %s is not running", name)
+	}
+
+	if instType == "docker" {
+		args := append([]string{"exec", name}, cmdArgs...)
+		cmd := exec.Command("docker", args...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	domain, err := m.conn.LookupDomainByName(name)
+	if err != nil {
+		return "", fmt.Errorf("instance %s not found: %v", name, err)
 	}
 
 	execCmd := map[string]interface{}{
@@ -518,7 +678,8 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	cmdJSON, _ := json.Marshal(execCmd)
 	resp, err := domain.QemuAgentCommand(string(cmdJSON), -2, 0)
 	if err != nil {
-		if strings.Contains(err.Error(), "Guest agent is not responding") || strings.Contains(err.Error(), "Guest agent is not configured") {
+		lowerErr := strings.ToLower(err.Error())
+		if strings.Contains(lowerErr, "guest agent") || strings.Contains(lowerErr, "not responding") || strings.Contains(lowerErr, "not configured") || strings.Contains(lowerErr, "not supported") {
 			// Fallback to Serial Console Injection
 			stream, sErr := m.conn.NewStream(0)
 			if sErr != nil {
@@ -536,32 +697,99 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 				user = "ubuntu"
 			}
 
-			fullCmd := strings.Join(cmdArgs, " ")
+			var captured strings.Builder
+			buf := make([]byte, 4096)
+
+			// Initial wakeup
 			stream.Send([]byte("\n\n"))
 			time.Sleep(1 * time.Second)
 
-			// Read buffer to detect login prompt
-			buf := make([]byte, 4096)
+			// Read initial output (might be login prompt)
 			n, _ := stream.Recv(buf)
-			output := string(buf[:n])
+			if n > 0 {
+				captured.Write(buf[:n])
+			}
 
-			if strings.Contains(output, "login:") || strings.Contains(output, "username:") {
+			lowerOut := strings.ToLower(captured.String())
+			if strings.Contains(lowerOut, "login:") || strings.Contains(lowerOut, "username:") {
 				stream.Send([]byte(user + "\n"))
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(800 * time.Millisecond)
 				stream.Send([]byte(pass + "\n"))
-				time.Sleep(1 * time.Second)
+				time.Sleep(1500 * time.Millisecond)
+
+				// Clear buffer after login
+				n, _ = stream.Recv(buf)
+				captured.Reset()
 			}
 
-			stream.Send([]byte(fullCmd + "\n"))
-			time.Sleep(2 * time.Second)
+			// Clear line buffer with Ctrl+C
+			stream.Send([]byte{0x03, 0x03})
+			time.Sleep(200 * time.Millisecond)
 
-			n, _ = stream.Recv(buf)
-			res := string(buf[:n])
-			if res == "" {
-				res = "(no output captured from console - command may still be running)"
+			// Build safe shell-escaped command for serial console
+			fullCmd := ""
+			for _, arg := range cmdArgs {
+				if strings.ContainsAny(arg, " \t\n\r\"'\\$") {
+					fullCmd += "'" + strings.ReplaceAll(arg, "'", "'\\''") + "' "
+				} else {
+					fullCmd += arg + " "
+				}
 			}
-			res = strings.TrimPrefix(res, fullCmd)
-			return "Command injected via serial console. Output preview:\n" + strings.TrimSpace(res), nil
+			fullCmd = strings.TrimSpace(fullCmd)
+
+			// Use markers to isolate output
+			startMarker := "__KSVM_S__"
+			endMarker := "__KSVM_E__"
+
+			// Send in smaller chunks to avoid buffer overflow on slow emulated UARTs
+			markedCmd := fmt.Sprintf(" echo %s; %s; echo %s\n", startMarker, fullCmd, endMarker)
+			for i := 0; i < len(markedCmd); i += 16 {
+				end := i + 16
+				if end > len(markedCmd) {
+					end = len(markedCmd)
+				}
+				stream.Send([]byte(markedCmd[i:end]))
+				time.Sleep(5 * time.Millisecond)
+			}
+
+			// Capture loop
+			captureDeadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(captureDeadline) {
+				n, _ = stream.Recv(buf)
+				if n > 0 {
+					captured.Write(buf[:n])
+				}
+				if strings.Count(captured.String(), endMarker) >= 1 {
+					// Give it a tiny bit more time to finish the last echo
+					time.Sleep(100 * time.Millisecond)
+					n, _ = stream.Recv(buf)
+					if n > 0 {
+						captured.Write(buf[:n])
+					}
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			res := captured.String()
+
+			// Isolation logic: find the LAST occurrence of startMarker to bypass echo
+			// and the LAST occurrence of endMarker to truncate correctly.
+			sIdx := strings.LastIndex(res, startMarker)
+			eIdx := strings.LastIndex(res, endMarker)
+
+			if sIdx != -1 && eIdx != -1 && eIdx > sIdx {
+				res = res[sIdx+len(startMarker) : eIdx]
+				// Clean up carriage returns and leading/trailing whitespace
+				res = strings.ReplaceAll(res, "\r", "")
+				res = strings.TrimSpace(res)
+				return res, nil
+			}
+
+			// Fallback: just return everything if markers not found correctly
+			res = strings.ReplaceAll(res, startMarker, "")
+			res = strings.ReplaceAll(res, endMarker, "")
+			return res, nil
 		}
 		return "", err
 	}
@@ -576,7 +804,9 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 	}
 	pid := startResult.Return.PID
 
-	for {
+	// Wait with timeout
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
 		statusCmd := map[string]interface{}{
 			"execute":   "guest-exec-status",
 			"arguments": map[string]interface{}{"pid": pid},
@@ -613,13 +843,14 @@ func (m *Manager) Exec(name string, cmdArgs []string) (string, error) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	return "", fmt.Errorf("command timed out after 60s")
 }
 
 // Copy transfers a file from host to guest.
 func (m *Manager) Copy(name, localPath, guestPath string) error {
 	domain, err := m.conn.LookupDomainByName(name)
 	if err != nil {
-		destDir := filepath.Join(BaseDir, "containers", name)
+		destDir := m.instancePath(name)
 		if _, err := os.Stat(destDir); err == nil {
 			target := filepath.Join(destDir, "rootfs", guestPath)
 			src, err := os.Open(localPath)
@@ -836,6 +1067,14 @@ func (m *Manager) Purge() error {
 			domain.Undefine()
 		}
 	}
+
+	// Containers from LXD
+	if containers, err := m.lxd.ListContainers(); err == nil {
+		for _, name := range containers {
+			m.lxd.ControlContainer(name, "delete")
+		}
+	}
+
 	return os.RemoveAll(BaseDir)
 }
 
@@ -860,7 +1099,7 @@ func (m *Manager) Version() (*VersionInfo, error) {
 func (m *Manager) Info(name string) (*VMInfo, error) {
 	// 1. Determine instance type from metadata
 	instType := "vm"
-	if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+	if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
 		var meta map[string]string
 		if err := json.Unmarshal(data, &meta); err == nil {
 			if t, ok := meta["type"]; ok {
@@ -882,7 +1121,24 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 				CPUs: 1, CPUUsage: lxdMetrics.CPUUsage,
 				MemoryMB: uint(lxdMetrics.MemoryTotal), MemoryUsage: uint(lxdMetrics.MemoryUsed),
 				DiskUsage: int64(lxdMetrics.DiskUsed * 1024 * 1024 * 1024), DiskGB: uint(lxdMetrics.DiskTotal),
-				Image: "lxd-image",
+				Image:  "lxd-image",
+				Uptime: lxdMetrics.Uptime,
+			}, nil
+		}
+	}
+
+	if instType == "docker" {
+		metrics, err := m.docker.GetContainerMetrics(name)
+		if err == nil {
+			ips := metrics.IPs
+			if len(ips) == 0 {
+				ips = []string{"bridge"}
+			}
+			return &VMInfo{
+				Name: name, Status: metrics.Status, Type: "docker", IPs: ips,
+				CPUs: 1, MemoryMB: uint(metrics.MemoryTotal),
+				Image: "docker-image",
+				Uptime: metrics.Uptime,
 			}, nil
 		}
 	}
@@ -919,7 +1175,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			}
 		}
 		var diskUsage int64
-		fi, err := os.Stat(filepath.Join(BaseDir, "instances", name, "disk.qcow2"))
+		fi, err := os.Stat(m.instancePath(name, "disk.qcow2"))
 		if err == nil {
 			diskUsage = fi.Size()
 		}
@@ -960,7 +1216,7 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 
 		// Load Credentials
 		user, pass := "", ""
-		if data, err := os.ReadFile(filepath.Join(BaseDir, "instances", name, "meta.json")); err == nil {
+		if data, err := os.ReadFile(m.instancePath(name, "meta.json")); err == nil {
 			var meta map[string]string
 			if err := json.Unmarshal(data, &meta); err == nil {
 				user = meta["user"]
@@ -983,13 +1239,22 @@ func (m *Manager) Info(name string) (*VMInfo, error) {
 			m.statsMu.Unlock()
 		}
 
+		uptime := int64(0)
+		if state == libvirt.DOMAIN_RUNNING {
+			// A simple way to get uptime for VM is to check domain start time
+			// but libvirt API doesn't expose it directly in a simple way in this binding
+			// without complex XML parsing or extra calls.
+			// For now we'll use 0 or skip.
+		}
+
 		return &VMInfo{
 			Name: name, Status: status, Type: "vm", IPs: ips,
 			CPUs: uint(info.NrVirtCpu), CPUUsage: cpuUsage,
 			MemoryMB:    uint(info.MaxMem / 1024),
 			MemoryUsage: memUsage, DiskUsage: diskUsage, DiskGB: diskGB,
-			Image: "libvirt-image",
-			User:  user, Password: pass,
+			Image:  "libvirt-image",
+			Uptime: uptime,
+			User:   user, Password: pass,
 		}, nil
 	}
 
@@ -1029,5 +1294,29 @@ func (m *Manager) List() ([]VMInfo, error) {
 		}
 	}
 
+	// Containers from Docker
+	if containers, err := m.docker.ListContainers(); err == nil {
+		for _, name := range containers {
+			if info, err := m.Info(name); err == nil {
+				found := false
+				for _, existing := range infos {
+					if existing.Name == name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					infos = append(infos, *info)
+				}
+			}
+		}
+	}
+
 	return infos, nil
+}
+
+func stripANSI(str string) string {
+	const ansi = "[\u001B\u009B][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]"
+	re := regexp.MustCompile(ansi)
+	return re.ReplaceAllString(str, "")
 }

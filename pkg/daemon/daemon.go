@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,21 +30,17 @@ func Start(cfg Config) error {
 	}
 	defer manager.Close()
 
-	// 1. Setup Web Server
 	r := gin.Default()
 
-	// Auth Middleware
 	if cfg.MasterUser != "" {
 		r.Use(gin.BasicAuth(gin.Accounts{
 			cfg.MasterUser: cfg.MasterPass,
 		}))
 	}
 
-	// API
 	apiSvc := api.New(manager)
 	apiSvc.Register(r)
 
-	// Web UI
 	r.GET("/", func(c *gin.Context) {
 		data, err := web.Assets.ReadFile("index.html")
 		if err != nil {
@@ -53,22 +50,21 @@ func Start(cfg Config) error {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 
-	r.GET("/static/:filename", func(c *gin.Context) {
-		filename := c.Param("filename")
-		data, err := web.Assets.ReadFile(filename)
+	r.GET("/static/*filepath", func(c *gin.Context) {
+		path := c.Param("filepath")[1:]
+		data, err := web.Assets.ReadFile(path)
 		if err != nil {
 			c.String(http.StatusNotFound, "Not Found")
 			return
 		}
 
 		contentType := "text/plain"
-		if len(filename) > 3 {
-			switch filename[len(filename)-3:] {
-			case ".js":
-				contentType = "application/javascript"
-			case "css":
-				contentType = "text/css"
-			}
+		if strings.HasSuffix(path, ".js") {
+			contentType = "application/javascript"
+		} else if strings.HasSuffix(path, ".css") {
+			contentType = "text/css"
+		} else if strings.HasSuffix(path, ".html") {
+			contentType = "text/html"
 		}
 		c.Data(http.StatusOK, contentType, data)
 	})
@@ -78,10 +74,8 @@ func Start(cfg Config) error {
 		Handler: r,
 	}
 
-	// 2. Setup Mux
 	mux := NewMux(cfg.MuxPort, manager)
 
-	// Start servers in goroutines
 	go func() {
 		fmt.Printf("Web UI listening on port %s\n", cfg.WebPort)
 		if err := webServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -95,7 +89,6 @@ func Start(cfg Config) error {
 		}
 	}()
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

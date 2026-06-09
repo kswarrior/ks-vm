@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -41,11 +42,15 @@ func NewLXDClient() *LXDClient {
 }
 
 func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, error) {
-	var bodyReader bytes.Buffer
+	var bodyReader io.Reader
 	if body != nil {
-		json.NewEncoder(&bodyReader).Encode(body)
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = bytes.NewReader(data)
 	}
-	req, err := http.NewRequest(method, "http://lxd"+path, &bodyReader)
+	req, err := http.NewRequest(method, "http://lxd"+path, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -67,11 +72,13 @@ func (c *LXDClient) do(method, path string, body interface{}) (*http.Response, e
 			ErrorCode int    `json:"error_code"`
 			ErrorType string `json:"error_type"`
 		}
-		json.NewDecoder(resp.Body).Decode(&errData)
+		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		json.Unmarshal(body, &errData)
+
 		errMsg := errData.Error
 		if errMsg == "" {
-			errMsg = fmt.Sprintf("status %d", resp.StatusCode)
+			errMsg = fmt.Sprintf("status %d: %s", resp.StatusCode, string(body))
 		}
 		return nil, fmt.Errorf("LXD error: %s", errMsg)
 	}
@@ -107,13 +114,26 @@ func (c *LXDClient) waitForOperation(opPath string) error {
 
 func (c *LXDClient) ensureImage(image string) error {
 	// 1. Check if image already exists locally by alias or fingerprint
-	resp, err := c.do("GET", "/1.0/images/aliases/"+image, nil)
+	// Normalize name (remove images: or ubuntu: prefix if checked locally)
+	localName := image
+	if strings.Contains(image, ":") {
+		parts := strings.Split(image, ":")
+		localName = parts[1]
+	}
+
+	resp, err := c.do("GET", "/1.0/images/aliases/"+localName, nil)
 	if err == nil {
 		resp.Body.Close()
 		return nil
 	}
+	resp, err = c.do("GET", "/1.0/images/aliases/"+image, nil)
+	if err == nil {
+		resp.Body.Close()
+		return nil
+	}
+
 	// Try fingerprint
-	if len(image) == 64 {
+	if len(image) == 64 && !strings.Contains(image, ":") && !strings.Contains(image, ".") {
 		resp, err = c.do("GET", "/1.0/images/"+image, nil)
 		if err == nil {
 			resp.Body.Close()
@@ -122,38 +142,41 @@ func (c *LXDClient) ensureImage(image string) error {
 	}
 
 	// 2. Resolve image source
-	sourceURL := "https://images.linuxcontainers.org"
+	serverURL := "https://images.linuxcontainers.org"
 	imgName := image
-	sourceType := "simplestreams"
+	protocol := "simplestreams"
 
 	if strings.Contains(image, ":") {
 		parts := strings.Split(image, ":")
 		if parts[0] == "ubuntu" {
 			// Official Ubuntu images use specific streams
-			sourceURL = "https://cloud-images.ubuntu.com/releases"
+			serverURL = "https://cloud-images.ubuntu.com/releases"
+			imgName = parts[1]
+		} else if parts[0] == "images" {
 			imgName = parts[1]
 		}
 	}
 
 	// 3. Pull image
-	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, sourceURL, imgName)
+	fmt.Printf("Image %s not found locally, pulling from %s (%s)...\n", image, serverURL, imgName)
 
 	source := map[string]string{
-		"type":   sourceType,
-		"url":    sourceURL,
+		"type":     "image",
+		"mode":     "pull",
+		"server":   serverURL,
+		"protocol": protocol,
+		"alias":    imgName,
 	}
 
-	// Double check: if it's cloud-images, it definitely needs 'name'
-	if strings.Contains(sourceURL, "cloud-images.ubuntu.com") || strings.Contains(sourceURL, "linuxcontainers.org") {
+	// Double identify for maximum compatibility
+	if protocol == "simplestreams" {
 		source["name"] = imgName
-	} else {
-		source["alias"] = imgName
 	}
 
 	body := map[string]interface{}{
 		"source":  source,
 		"aliases": []map[string]interface{}{{"name": image}},
-		"public":  false,
+		"public":  true,
 	}
 	resp, err = c.do("POST", "/1.0/images", body)
 	if err != nil {
@@ -250,9 +273,17 @@ func (c *LXDClient) ControlContainer(name, action string) error {
 		lxdAction = "restart"
 	case "delete":
 		// LXD requires instance to be stopped before deletion
-		c.do("PUT", "/1.0/instances/"+name+"/state", map[string]string{"action": "stop", "force": "true"})
+		resp, err := c.do("PUT", "/1.0/instances/"+name+"/state", map[string]string{"action": "stop", "force": "true"})
+		if err == nil {
+			var opData struct {
+				Operation string `json:"operation"`
+			}
+			json.NewDecoder(resp.Body).Decode(&opData)
+			resp.Body.Close()
+			c.waitForOperation(opData.Operation)
+		}
 
-		resp, err := c.do("DELETE", "/1.0/instances/"+name, nil)
+		resp, err = c.do("DELETE", "/1.0/instances/"+name, nil)
 		if err != nil {
 			return err
 		}
@@ -303,6 +334,7 @@ type ContainerMetrics struct {
 	DiskUsed    uint64   `json:"disk_used"`
 	DiskTotal   uint64   `json:"disk_total"`
 	Status      string   `json:"status"`
+	Uptime      int64    `json:"uptime"`
 	Logs        string   `json:"logs"`
 	IPs         []string `json:"ips"`
 }
@@ -316,8 +348,9 @@ func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) 
 
 	var data struct {
 		Metadata struct {
-			Status string `json:"status"`
-			Memory struct {
+			Status    string `json:"status"`
+			StartedAt string `json:"started_at"`
+			Memory    struct {
 				Usage uint64 `json:"usage"`
 			} `json:"memory"`
 			CPU struct {
@@ -337,8 +370,16 @@ func (c *LXDClient) GetContainerMetrics(name string) (*ContainerMetrics, error) 
 	}
 	json.NewDecoder(resp.Body).Decode(&data)
 
+	uptime := int64(0)
+	if data.Metadata.StartedAt != "" && data.Metadata.StartedAt != "0001-01-01T00:00:00Z" {
+		if t, err := time.Parse(time.RFC3339, data.Metadata.StartedAt); err == nil {
+			uptime = int64(time.Since(t).Seconds())
+		}
+	}
+
 	metrics := &ContainerMetrics{
 		Status:     strings.ToLower(data.Metadata.Status),
+		Uptime:     uptime,
 		MemoryUsed: data.Metadata.Memory.Usage / 1024 / 1024,
 	}
 

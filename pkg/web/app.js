@@ -1,4 +1,25 @@
 let allImages = [];
+const components = {};
+
+async function loadComponent(name) {
+    if (components[name]) return components[name];
+    const res = await fetch(`/static/components/${name}.html`);
+    const html = await res.text();
+    components[name] = html;
+    return html;
+}
+
+function toast(msg, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.innerText = msg;
+    container.appendChild(el);
+    setTimeout(() => {
+        el.classList.add('toast-fade-out');
+        setTimeout(() => el.remove(), 300);
+    }, 4000);
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     const tabs = document.querySelectorAll('.nav-item, .icon-nav-item');
@@ -20,13 +41,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     setInterval(() => {
         const activeNavItem = document.querySelector('.nav-item.active');
-        if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances();
+        if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances(false);
         if (activeNavItem && activeNavItem.dataset.tab === 'system') fetchHostMetrics();
-    }, 2000);
+    }, 5000);
 
     // Initial load
     try {
-        await Promise.all([fetchInstances(true), preloadImages()]);
+        await showTab('instances');
+        await preloadImages();
     } catch (e) {
         console.error("Initial load failed:", e);
     } finally {
@@ -43,7 +65,16 @@ function hideSplash() {
     }, 500);
 }
 
-function showTab(tabId) {
+async function showTab(tabId) {
+    const mainContent = document.getElementById('main-content');
+
+    // Check if we need to load component
+    if (!document.getElementById(tabId)) {
+        const name = (tabId === 'log' ? 'logs' : (tabId === 'add-image' ? 'add-image' : tabId));
+        const html = await loadComponent(name);
+        mainContent.insertAdjacentHTML('beforeend', html);
+    }
+
     document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
     document.querySelectorAll('.nav-item, .icon-nav-item').forEach(t => t.classList.remove('active'));
 
@@ -64,105 +95,76 @@ async function fetchInstances(animate = false) {
         const res = await fetch('/api/v1/instances');
         const data = await res.json();
         const listContainer = document.getElementById('instance-list');
-        listContainer.innerHTML = '';
+        if (!listContainer) return;
+
+        // Identify instances to remove
+        const newNames = data.map(vm => vm.Name);
+        const currentCards = listContainer.querySelectorAll('.instance-card');
+        currentCards.forEach(card => {
+            const name = card.id.replace('card-', '');
+            if (!newNames.includes(name) && !card.dataset.optimistic) card.remove();
+        });
 
         data.forEach(vm => {
-            const card = document.createElement('div');
-            card.className = 'card instance-card' + (animate ? ' animate-in' : '');
+            let card = document.getElementById(`card-${vm.Name}`);
+            const isNew = !card;
 
-            if (vm.Status === 'deploying') {
-                const overlay = document.createElement('div');
-                overlay.className = 'overlay';
-                overlay.innerText = 'DEPLOYING...';
-                card.appendChild(overlay);
+            if (isNew) {
+                card = document.createElement('div');
+                card.id = `card-${vm.Name}`;
+                card.className = 'card instance-card' + (animate ? ' animate-in' : '');
+                listContainer.appendChild(card);
             }
 
+            // Skip update if user is interacting with dropdown
+            if (card.querySelector('.dropdown.show')) return;
+
             const statusText = vm.Status || 'unknown';
-            const statusClass = `status-${statusText}`;
+            const statusTagClass = `status-tag-${statusText}`;
             const memUsed = ((vm.MemoryUsage || 0) / 1024).toFixed(1);
             const memTotal = ((vm.MemoryMB || 1024) / 1024).toFixed(1);
             const diskUsed = ((vm.DiskUsage || 0) / 1024 / 1024 / 1024).toFixed(1);
             const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
-
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
-            const typeLabel = vm.Type === 'container' ? 'LXD' : 'VM';
-            const memTotalVal = vm.MemoryMB || 1024;
-            const memPerc = Math.min(100, ((vm.MemoryUsage || 0) / memTotalVal * 100)).toFixed(1);
-            const diskTotalBytes = (vm.DiskGB || 0) * 1024 * 1024 * 1024;
-            const diskPerc = diskTotalBytes > 0 ? Math.min(100, ((vm.DiskUsage || 0) / diskTotalBytes * 100)).toFixed(1) : 0;
+            const ipList = (vm.IPs && vm.IPs.length > 0) ? vm.IPs.join(', ') : 'internal';
 
-            const primaryIP = (vm.IPs && vm.IPs.length > 0) ? vm.IPs[0] : 'N/A';
+            let icon = '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>';
+            if (vm.Type === 'container') icon = '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>';
+            if (vm.Type === 'docker') icon = '<svg viewBox="0 0 24 24"><path d="M3.56,12L2.73,14H21.27L20.44,12H3.56M12,2L10,4H14L12,2M10,5L8,7H16L14,5H10M8,8L6,10H18L16,8H8M6,11L4.17,13H19.83L18,11H6Z" fill="currentColor"/></svg>';
 
-            card.innerHTML += `
-                <div class="instance-header">
+            const contentHTML = `
+                ${vm.Status === 'deploying' ? `<div class="overlay" id="deploy-overlay-${vm.Name}">DEPLOYING...</div>` : ''}
+                <div class="instance-card-header">
                     <div style="display:flex; align-items:center; gap:12px;">
-                        <div class="instance-icon">
-                            ${vm.Type === 'container' ?
-                                '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>' :
-                                '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>'
-                            }
-                        </div>
+                        <div class="instance-icon-small">${icon}</div>
                         <div>
-                            <div class="instance-title">${vm.Name}</div>
-                            <div class="instance-status ${statusClass}">${statusText.toUpperCase()}</div>
+                            <div class="instance-title-small">${vm.Name} <span class="status-tag ${statusTagClass}">${statusText}</span></div>
+                            <div style="color:var(--text-muted); font-size:0.75rem; font-weight:500;">${ipList}</div>
                         </div>
                     </div>
                     <div class="actions-menu">
                         <button class="dots-btn" onclick="toggleDropdown(event, '${vm.Name}')">
-                            <svg viewBox="0 0 24 24"><path d="M12 16a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4zm0-6a2 2 0 110 4 2 2 0 010-4z"/></svg>
+                            <svg viewBox="0 0 24 24" style="width:20px;height:20px;"><path d="M12,16A2,2 0 0,1 14,18A2,2 0 0,1 12,20A2,2 0 0,1 10,18A2,2 0 0,1 12,16M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4Z" fill="currentColor"/></svg>
                         </button>
                         <div id="dropdown-${vm.Name}" class="dropdown">
                             <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
                             <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
                             <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
-                            <div class="dropdown-item" onclick="openEdit('${vm.Name}')">EDIT</div>
-                            <div class="dropdown-item" onclick="openExec('${vm.Name}')">RUN CODE</div>
-                            ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH TOKEN</div>` : ''}
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
                         </div>
                     </div>
                 </div>
-
-                <div class="instance-info-row">
-                    <div class="info-group">
-                        <div class="info-label">IP Address</div>
-                        <div class="info-value">${primaryIP}</div>
-                    </div>
-                    <div class="info-group">
-                        <div class="info-label">Type</div>
-                        <div class="info-value" style="text-transform:uppercase;">${typeLabel}</div>
-                    </div>
-                </div>
-
-                <div class="metrics-grid">
-                    <div class="stat-item">
-                        <div class="stat-header">
-                            <span>CPU usage</span>
-                            <span>${cpuPerc}%</span>
-                        </div>
-                        <div class="stat-progress"><div class="progress-fill" style="width: ${cpuPerc}%"></div></div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-header">
-                            <span>Memory usage</span>
-                            <span>${memUsed} / ${memTotal} GB</span>
-                        </div>
-                        <div class="stat-progress"><div class="progress-fill" style="width: ${memPerc}%"></div></div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-header">
-                            <span>Disk usage</span>
-                            <span>${diskUsed} / ${diskTotal} GB</span>
-                        </div>
-                        <div class="stat-progress"><div class="progress-fill" style="width: ${diskPerc}%"></div></div>
-                    </div>
-                </div>
-
-                <div style="margin-top:20px;">
-                    <button class="btn btn-outline" onclick="action('restart', '${vm.Name}')" style="width:100%;">Reboot VPS</button>
+                <div class="metrics-row-flat">
+                    <div class="metric-item">RAM <b>${memUsed}/${memTotal} GB</b></div>
+                    <div class="metric-item">CPU <b>${cpuPerc}%</b></div>
+                    <div class="metric-item">Disk <b>${diskUsed}gb/${diskTotal}gb</b></div>
                 </div>
             `;
+
+            if (card.innerHTML !== contentHTML) {
+                card.innerHTML = contentHTML;
+            }
             listContainer.appendChild(card);
         });
     } catch (e) {
@@ -192,8 +194,13 @@ async function preloadImages() {
 
 function filterImages() {
     const query = document.getElementById('image-search').value.toLowerCase();
+    const type = document.getElementById('deploy-type').value;
     const dd = document.getElementById('image-dropdown');
-    const filtered = allImages.filter(img => img.Name.toLowerCase().includes(query));
+    const filtered = allImages.filter(img => {
+        const matchesQuery = img.Name.toLowerCase().includes(query);
+        const matchesType = img.Type === type;
+        return matchesQuery && matchesType;
+    });
 
     if (filtered.length > 0 && query.length > 0) {
         dd.style.display = 'block';
@@ -216,6 +223,10 @@ function toggleDeployFields() {
     const note = document.getElementById('lxd-deploy-note');
     if (type === 'container') {
         note.style.display = 'block';
+        note.innerHTML = 'Note: For LXD, you can also type an alias like <b>ubuntu:24.04</b> in the search box if not in pool.';
+    } else if (type === 'docker') {
+        note.style.display = 'block';
+        note.innerHTML = 'Note: For Docker, you can type any image name like <b>nginx:latest</b> or <b>ubuntu</b>.';
     } else {
         note.style.display = 'none';
     }
@@ -233,6 +244,11 @@ function toggleAddImgFields() {
         urlLabel.innerText = "LXD Source (Format: ubuntu:24.04)";
         urlInput.placeholder = "e.g. ubuntu:24.04 or images:debian/12";
         help.innerText = "This will register an alias in the LXD image store.";
+    } else if (type === 'docker') {
+        nameLabel.innerText = "Docker Image Tag";
+        urlLabel.innerText = "Docker Image (e.g. nginx:latest)";
+        urlInput.placeholder = "nginx:latest or alpine";
+        help.innerText = "This will register a docker image reference.";
     } else {
         nameLabel.innerText = "Image Label";
         urlLabel.innerText = "Source URL (QCOW2)";
@@ -244,19 +260,39 @@ function toggleAddImgFields() {
 async function deployInstance() {
     const btn = document.querySelector('#deploy .btn-primary');
     const oldText = btn.innerText;
-    btn.innerText = "DEPLOYING...";
+    btn.innerText = "STARTING...";
     btn.disabled = true;
 
+    const name = document.getElementById('deploy-name').value;
+    const type = document.getElementById('deploy-type').value;
     const data = {
-        name: document.getElementById('deploy-name').value,
+        name: name,
         image: document.getElementById('deploy-image').value || document.getElementById('image-search').value,
-        type: document.getElementById('deploy-type').value,
+        type: type,
         cpus: parseInt(document.getElementById('deploy-cpu').value),
         memory_mb: parseInt(document.getElementById('deploy-ram').value),
         disk_gb: parseInt(document.getElementById('deploy-disk').value),
         user: document.getElementById('deploy-user').value,
         password: document.getElementById('deploy-pass').value
     };
+
+    // Optimistic Deploy Card
+    const listContainer = document.getElementById('instance-list');
+    const optCard = document.createElement('div');
+    optCard.id = `card-${name}`;
+    optCard.className = 'card instance-card animate-in';
+    optCard.dataset.optimistic = "true";
+    optCard.innerHTML = `
+        <div class="overlay">INITIATING...</div>
+        <div class="instance-card-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div class="instance-icon-small">VM</div>
+                <div><div class="instance-title-small">${name} <span class="status-tag status-tag-deploying">PREPARING</span></div></div>
+            </div>
+        </div>
+    `;
+    listContainer.prepend(optCard);
+    showTab('instances');
 
     try {
         const res = await fetch('/api/v1/deploy', {
@@ -265,13 +301,16 @@ async function deployInstance() {
             body: JSON.stringify(data)
         });
         const result = await res.json();
-        if (res.ok) showTab('instances');
-        else {
-            alert("Deployment Error: " + (result.error || "Unknown error"));
-            console.error("Deploy failed:", result);
+        if (!res.ok) {
+            toast(result.error || "Deployment failed", 'error');
+            optCard.remove();
+        } else {
+            toast("Deployment started", 'success');
+            delete optCard.dataset.optimistic;
         }
     } catch (e) {
-        alert("Deployment failed: " + e.message);
+        toast("Network error", 'error');
+        optCard.remove();
     } finally {
         btn.innerText = oldText;
         btn.disabled = false;
@@ -309,72 +348,87 @@ async function updateInstance() {
 }
 
 async function action(type, name) {
+    const apiType = type === 'launch' ? 'launch' : type;
     if (type === 'delete' && !confirm(`Are you sure you want to delete ${name}?`)) return;
-    await fetch(`/api/v1/${type}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
+
+    // Optimistic UI
+    const card = document.getElementById(`card-${name}`);
+    let oldStatus = '';
+    let oldTagClass = '';
+    if (card) {
+        const tagEl = card.querySelector('.status-tag');
+        if (tagEl) {
+            oldStatus = tagEl.innerText;
+            oldTagClass = tagEl.className;
+            tagEl.innerText = type === 'delete' ? 'DELETING...' : 'PROCESSING...';
+            tagEl.className = 'status-tag status-tag-deploying'; // Use pulse animation
+        }
+    }
+
+    try {
+        const res = await fetch(`/api/v1/${apiType}/${name}`, { method: type === 'delete' ? 'DELETE' : 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            toast(`${name}: ${type} success`, 'success');
+            if (type === 'delete') {
+                if (card) card.style.opacity = '0.5';
+            }
+        } else {
+            toast(data.error || "Operation failed", 'error');
+            // Revert on error
+            if (card) {
+                const tagEl = card.querySelector('.status-tag');
+                if (tagEl) {
+                    tagEl.innerText = oldStatus;
+                    tagEl.className = oldTagClass;
+                }
+            }
+        }
+    } catch (e) {
+        toast("Network error", 'error');
+    }
     fetchInstances();
 }
 
-async function getSSH(name) {
-    const output = document.getElementById('exec-output');
-    document.getElementById('exec-title').innerText = "SSH Setup: " + name;
-    output.innerText = "Initializing persistent SSH tunnel inside " + name + "...\n";
-    document.getElementById('exec-command').value = "";
-    showTab('exec');
-
-    try {
-        const res = await fetch(`/api/v1/ssh/${name}`, { method: 'POST' });
-        const data = await res.json();
-        if (res.ok) {
-            output.innerText += "\n--- SUCCESS ---\n";
-            output.innerText += "SSH Token: " + data.token + "\n";
-            output.innerText += "The tunnel is now running in the background of your VPS.\n";
-            output.innerText += "You can use this token at https://ks-ssh.pages.dev\n";
-        } else {
-            output.innerText += "\n--- ERROR ---\n" + data.error + "\n";
-        }
-    } catch (e) {
-        output.innerText += "\n--- FETCH FAILED ---\n" + e.message + "\n";
-    }
+function openModal(title, bodyHTML, onConfirm) {
+    const overlay = document.getElementById('modal-overlay');
+    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-body').innerHTML = bodyHTML;
+    const confirmBtn = document.getElementById('modal-confirm');
+    confirmBtn.onclick = () => {
+        onConfirm();
+        closeModal();
+    };
+    overlay.style.display = 'flex';
 }
 
-function openExec(name) {
-    document.getElementById('exec-title').innerText = "Terminal: " + name;
-    document.getElementById('exec-output').innerText = "";
-    document.getElementById('exec-command').value = "";
-    showTab('exec');
-}
-
-async function runExec() {
-    const name = document.getElementById('exec-title').innerText.split(': ')[1];
-    const cmd = document.getElementById('exec-command').value;
-    const output = document.getElementById('exec-output');
-    output.innerText += "> " + cmd + "\n";
-
-    const res = await fetch(`/api/v1/exec/${name}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd })
-    });
-    const data = await res.json();
-    if (data.output) output.innerText += data.output + "\n";
-    if (data.error) output.innerText += "Error: " + data.error + "\n";
-    output.scrollTop = output.scrollHeight;
+function closeModal() {
+    document.getElementById('modal-overlay').style.display = 'none';
 }
 
 async function fetchImages(animate = false) {
     const res = await fetch('/api/v1/images');
     allImages = await res.json();
     const list = document.getElementById('image-list');
+    if (!list) return;
     list.innerHTML = allImages.map(img => `
-        <div class="card ${animate ? 'animate-in' : ''}">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <h3 style="margin:0;">${img.Name}</h3>
-                <span class="badge" style="color:var(--primary); font-size:0.7rem; font-weight:800;">${img.Type.toUpperCase()}</span>
+        <div class="card ${animate ? 'animate-in' : ''}" style="padding:20px;">
+            <div style="display:flex; align-items:center; gap:15px; margin-bottom:16px;">
+                <div class="instance-icon-small" style="background:var(--primary-light); color:var(--primary);">
+                    <svg viewBox="0 0 24 24"><path d="M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V4C4,2.89 4.89,2 6,2M11,15V12H9V15H6V17H9V20H11V17H14V15H11Z" fill="currentColor"/></svg>
+                </div>
+                <div style="flex:1;">
+                    <h3 style="margin:0; font-size:1.1rem;">${img.Name}</h3>
+                    <div style="font-size:0.7rem; font-weight:800; color:var(--primary);">${img.Type.toUpperCase()}</div>
+                </div>
             </div>
-            <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:20px;">Size: ${(img.Size / 1024 / 1024).toFixed(1)} MB</p>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; font-size:0.8rem; color:var(--text-muted); background:var(--bg-main); padding:8px 12px; border-radius:8px;">
+                <span>Size</span>
+                <span style="font-weight:700; color:var(--text-main);">${(img.Size / 1024 / 1024).toFixed(1)} MB</span>
+            </div>
             <div style="display:flex; gap:8px;">
-                <button class="btn btn-outline" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Rename</button>
-                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem;">Delete</button>
+                <button class="btn btn-outline" onclick="renameImage('${img.Name}')" style="flex:1; font-size:0.7rem; padding:8px;">Rename</button>
+                <button class="btn btn-danger" onclick="removeImage('${img.Name}')" style="flex:1; font-size:0.7rem; padding:8px;">Delete</button>
             </div>
         </div>
     `).join('');
@@ -386,6 +440,10 @@ async function fetchHostMetrics(init = false) {
         const res = await fetch('/api/v1/monitor');
         if (!res.ok) throw new Error("API status " + res.status);
         const data = await res.json();
+
+        if (init) {
+            toast("Dashboard connected", 'success');
+        }
         const m = data.metrics;
 
         const activeInstEl = document.getElementById('sys-active-inst');
@@ -396,6 +454,12 @@ async function fetchHostMetrics(init = false) {
 
         const kernelEl = document.getElementById('sys-kernel');
         if (kernelEl && m && m.kernel) kernelEl.innerText = m.kernel;
+
+        const loadEl = document.getElementById('sys-load');
+        if (loadEl && m && m.load_avg) loadEl.innerText = m.load_avg;
+
+        const coresEl = document.getElementById('sys-cores');
+        if (coresEl && m && m.cpu_cores) coresEl.innerText = m.cpu_cores;
 
         if (!m) {
             console.warn("No metrics data received");
@@ -449,21 +513,27 @@ function initCharts(m) {
         options: { animation: false, scales: { y: { min: 0, max: 100 } } }
     });
 
-    const ctxRam = document.getElementById('ramChart').getContext('2d');
+    const ramCanvas = document.getElementById('ramChart');
+    if (!ramCanvas) return;
+    const ctxRam = ramCanvas.getContext('2d');
     charts.ram = new Chart(ctxRam, {
         type: 'doughnut',
         data: { labels: ['Used', 'Free'], datasets: [{ data: [m.mem_used, m.mem_total - m.mem_used], backgroundColor: ['#673de6', '#f3f4f6'] }] },
         options: { animation: false }
     });
 
-    const ctxDisk = document.getElementById('diskChart').getContext('2d');
+    const diskCanvas = document.getElementById('diskChart');
+    if (!diskCanvas) return;
+    const ctxDisk = diskCanvas.getContext('2d');
     charts.disk = new Chart(ctxDisk, {
         type: 'pie',
         data: { labels: ['Used', 'Free'], datasets: [{ data: [m.disk_used, m.disk_total - m.disk_used], backgroundColor: ['#ef4444', '#f3f4f6'] }] },
         options: { animation: false }
     });
 
-    const ctxNet = document.getElementById('netChart').getContext('2d');
+    const netCanvas = document.getElementById('netChart');
+    if (!netCanvas) return;
+    const ctxNet = netCanvas.getContext('2d');
     charts.net = new Chart(ctxNet, {
         type: 'line',
         data: { labels: Array(10).fill(''), datasets: [
@@ -476,6 +546,7 @@ function initCharts(m) {
 }
 
 function updateCharts(m) {
+    if (!charts.cpu || !charts.ram || !charts.disk || !charts.net) return;
     // Update CPU
     charts.cpu.data.datasets[0].data.push(m.cpu_usage);
     charts.cpu.data.datasets[0].data.shift();
@@ -520,32 +591,45 @@ async function addImage() {
         url: document.getElementById('img-url').value,
         type: document.getElementById('img-type').value
     };
-    const res = await fetch('/api/v1/images', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    card.removeChild(overlay);
-    if (res.ok) {
-        showTab('images');
-        fetchImages();
-    } else alert("Error adding image");
+    try {
+        const res = await fetch('/api/v1/images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (res.ok) {
+            showTab('images');
+            fetchImages();
+        } else alert("Error adding image");
+    } finally {
+        card.removeChild(overlay);
+    }
 }
 
 async function removeImage(name) {
     if (!confirm(`Remove image ${name}?`)) return;
-    await fetch(`/api/v1/images/${name}`, { method: 'DELETE' });
+    toast(`Removing image ${name}...`);
+    try {
+        const res = await fetch(`/api/v1/images/${name}`, { method: 'DELETE' });
+        if (res.ok) toast("Image removed", 'success');
+        else toast("Failed to remove image", 'error');
+    } catch (e) { toast("Network error", 'error'); }
     fetchImages();
 }
 
 async function renameImage(name) {
     const newName = prompt("New name for " + name, name);
     if (!newName) return;
-    await fetch('/api/v1/images/rename', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ old_name: name, new_name: newName })
-    });
+    toast(`Renaming ${name} to ${newName}...`);
+    try {
+        const res = await fetch('/api/v1/images/rename', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_name: name, new_name: newName })
+        });
+        if (res.ok) toast("Image renamed", 'success');
+        else toast("Rename failed", 'error');
+    } catch (e) { toast("Network error", 'error'); }
     fetchImages();
 }
 
@@ -553,16 +637,21 @@ async function fetchUsers(animate = false) {
     const res = await fetch('/api/v1/users');
     const data = await res.json();
     const list = document.getElementById('user-list');
+    if (!list) return;
     list.innerHTML = data.map(u => `
-        <div class="card ${animate ? 'animate-in' : ''}">
-            <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                <div style="background:var(--primary-light); color:var(--primary); width:40px; height:40px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-weight:800; border:1px solid rgba(103, 61, 230, 0.1);">${u.username[0].toUpperCase()}</div>
-                <div>
-                    <h3 style="margin:0; font-size:1rem;">${u.username}</h3>
+        <div class="card ${animate ? 'animate-in' : ''}" style="padding:20px;">
+            <div style="display:flex; align-items:center; gap:15px; margin-bottom:16px;">
+                <div style="background:linear-gradient(135deg, var(--primary), var(--primary-hover)); color:#fff; width:44px; height:44px; border-radius:22px; display:flex; align-items:center; justify-content:center; font-weight:800; box-shadow:0 4px 8px rgba(103, 61, 230, 0.2); font-size:1.2rem;">${u.username[0].toUpperCase()}</div>
+                <div style="flex:1;">
+                    <h3 style="margin:0; font-size:1.1rem;">${u.username}</h3>
                     <div style="font-size:0.75rem; color:var(--text-muted);">${u.email}</div>
                 </div>
             </div>
-            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem;">Delete User</button>
+            <div style="background:var(--bg-main); padding:8px 12px; border-radius:8px; margin-bottom:16px; font-size:0.7rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+                <span>Role</span>
+                <span style="font-weight:700; color:var(--primary);">ADMINISTRATOR</span>
+            </div>
+            <button class="btn btn-danger" onclick="deleteUser('${u.username}')" style="width:100%; font-size:0.7rem; padding:8px;">Delete Account</button>
         </div>
     `).join('');
 }
@@ -597,13 +686,20 @@ async function fetchLogs(animate = false) {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
     const list = document.getElementById('log-list');
-    list.innerHTML = data.map(l => `
-        <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div>
-                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
-                <div style="font-weight:700; font-size:0.9rem;"><span style="color:var(--primary);">${l.action.toUpperCase()}</span> on ${l.target}</div>
+    if (!list) return;
+    list.innerHTML = data.map(l => {
+        const actionHtml = typeof marked !== 'undefined' ? marked.parse(l.action).trim() : l.action;
+        return `
+            <div class="card ${animate ? 'animate-in' : ''}" style="padding:16px; border-left:4px solid var(--primary); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">${l.timestamp} • IP: ${l.ip}</div>
+                    <div style="font-weight:700; font-size:0.9rem; display:flex; gap:8px; align-items:center;">
+                        <div class="log-action" style="color:var(--primary);">${actionHtml}</div>
+                        <span>on ${l.target}</span>
+                    </div>
+                </div>
+                <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
             </div>
-            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); background:var(--bg-main); padding:4px 8px; border-radius:4px;">${l.user.toUpperCase()}</div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
