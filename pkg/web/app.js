@@ -1,6 +1,13 @@
 let allImages = [];
-let terminals = {};
-let currentTermName = null;
+const components = {};
+
+async function loadComponent(name) {
+    if (components[name]) return components[name];
+    const res = await fetch(`/static/components/${name}.html`);
+    const html = await res.text();
+    components[name] = html;
+    return html;
+}
 
 function toast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -36,11 +43,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const activeNavItem = document.querySelector('.nav-item.active');
         if (activeNavItem && activeNavItem.dataset.tab === 'instances') fetchInstances(false);
         if (activeNavItem && activeNavItem.dataset.tab === 'system') fetchHostMetrics();
-    }, 2000);
+    }, 5000);
 
     // Initial load
     try {
-        await Promise.all([fetchInstances(true), preloadImages()]);
+        await showTab('instances');
+        await preloadImages();
     } catch (e) {
         console.error("Initial load failed:", e);
     } finally {
@@ -57,7 +65,16 @@ function hideSplash() {
     }, 500);
 }
 
-function showTab(tabId) {
+async function showTab(tabId) {
+    const mainContent = document.getElementById('main-content');
+
+    // Check if we need to load component
+    if (!document.getElementById(tabId)) {
+        const name = (tabId === 'log' ? 'logs' : (tabId === 'add-image' ? 'add-image' : tabId));
+        const html = await loadComponent(name);
+        mainContent.insertAdjacentHTML('beforeend', html);
+    }
+
     document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
     document.querySelectorAll('.nav-item, .icon-nav-item').forEach(t => t.classList.remove('active'));
 
@@ -78,6 +95,7 @@ async function fetchInstances(animate = false) {
         const res = await fetch('/api/v1/instances');
         const data = await res.json();
         const listContainer = document.getElementById('instance-list');
+        if (!listContainer) return;
 
         // Identify instances to remove
         const newNames = data.map(vm => vm.Name);
@@ -102,33 +120,25 @@ async function fetchInstances(animate = false) {
             if (card.querySelector('.dropdown.show')) return;
 
             const statusText = vm.Status || 'unknown';
-            const statusClass = `status-${statusText}`;
             const statusTagClass = `status-tag-${statusText}`;
             const memUsed = ((vm.MemoryUsage || 0) / 1024).toFixed(1);
             const memTotal = ((vm.MemoryMB || 1024) / 1024).toFixed(1);
             const diskUsed = ((vm.DiskUsage || 0) / 1024 / 1024 / 1024).toFixed(1);
             const diskTotal = vm.DiskGB ? vm.DiskGB.toFixed(1) : diskUsed;
-
             const cpuPerc = (vm.CPUUsage || 0).toFixed(1);
-
             const ipList = (vm.IPs && vm.IPs.length > 0) ? vm.IPs.join(', ') : 'internal';
 
             let icon = '<svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" fill="currentColor"/></svg>';
             if (vm.Type === 'container') icon = '<svg viewBox="0 0 24 24"><path d="M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z" fill="currentColor"/></svg>';
             if (vm.Type === 'docker') icon = '<svg viewBox="0 0 24 24"><path d="M3.56,12L2.73,14H21.27L20.44,12H3.56M12,2L10,4H14L12,2M10,5L8,7H16L14,5H10M8,8L6,10H18L16,8H8M6,11L4.17,13H19.83L18,11H6Z" fill="currentColor"/></svg>';
 
-            card.innerHTML = `
+            const contentHTML = `
                 ${vm.Status === 'deploying' ? `<div class="overlay" id="deploy-overlay-${vm.Name}">DEPLOYING...</div>` : ''}
                 <div class="instance-card-header">
                     <div style="display:flex; align-items:center; gap:12px;">
-                        <div class="instance-icon-small">
-                            ${icon}
-                        </div>
+                        <div class="instance-icon-small">${icon}</div>
                         <div>
-                            <div class="instance-title-small">
-                                ${vm.Name}
-                                <span class="status-tag ${statusTagClass}">${statusText}</span>
-                            </div>
+                            <div class="instance-title-small">${vm.Name} <span class="status-tag ${statusTagClass}">${statusText}</span></div>
                             <div style="color:var(--text-muted); font-size:0.75rem; font-weight:500;">${ipList}</div>
                         </div>
                     </div>
@@ -140,20 +150,21 @@ async function fetchInstances(animate = false) {
                             <div class="dropdown-item" onclick="action('launch', '${vm.Name}')">START</div>
                             <div class="dropdown-item" onclick="action('stop', '${vm.Name}')">STOP</div>
                             <div class="dropdown-item" onclick="action('restart', '${vm.Name}')">RESTART</div>
-                            <div class="dropdown-item" onclick="openExec('${vm.Name}')">RUN CODE</div>
-                            ${vm.Status === 'running' ? `<div class="dropdown-item" style="color:var(--primary);" onclick="getSSH('${vm.Name}')">SSH TOKEN</div>` : ''}
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" style="color:var(--danger);" onclick="action('delete', '${vm.Name}')">DELETE</div>
                         </div>
                     </div>
                 </div>
-
                 <div class="metrics-row-flat">
                     <div class="metric-item">RAM <b>${memUsed}/${memTotal} GB</b></div>
                     <div class="metric-item">CPU <b>${cpuPerc}%</b></div>
                     <div class="metric-item">Disk <b>${diskUsed}gb/${diskTotal}gb</b></div>
                 </div>
             `;
+
+            if (card.innerHTML !== contentHTML) {
+                card.innerHTML = contentHTML;
+            }
             listContainer.appendChild(card);
         });
     } catch (e) {
@@ -273,10 +284,10 @@ async function deployInstance() {
     optCard.dataset.optimistic = "true";
     optCard.innerHTML = `
         <div class="overlay">INITIATING...</div>
-        <div class="instance-header">
+        <div class="instance-card-header">
             <div style="display:flex; align-items:center; gap:12px;">
-                <div class="instance-icon">${type === 'container' ? 'LXD' : 'VM'}</div>
-                <div><div class="instance-title">${name}</div><div class="instance-status status-processing">PREPARING</div></div>
+                <div class="instance-icon-small">VM</div>
+                <div><div class="instance-title-small">${name} <span class="status-tag status-tag-deploying">PREPARING</span></div></div>
             </div>
         </div>
     `;
@@ -395,223 +406,11 @@ function closeModal() {
     document.getElementById('modal-overlay').style.display = 'none';
 }
 
-async function getSSH(name) {
-    const bodyHTML = `
-        <div class="form-group">
-            <label>Tunnel Subdomain (URL)</label>
-            <input type="text" id="ssh-url" placeholder="leave empty for random">
-        </div>
-        <div class="form-group">
-            <label>Internal Port</label>
-            <input type="number" id="ssh-port" value="3030">
-        </div>
-    `;
-
-    openModal(`SSH Setup: ${name}`, bodyHTML, async () => {
-        const url = document.getElementById('ssh-url').value;
-        const port = document.getElementById('ssh-port').value;
-
-        document.getElementById('exec-title').innerText = "SSH Setup: " + name;
-        openExec(name);
-        term.write(`Connecting to ${name} and running SSH setup...\r\n`);
-        showTab('exec');
-
-        try {
-            const res = await fetch(`/api/v1/ssh/${name}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ port, url })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                term.write("\r\n\x1b[1;32m--- SETUP COMPLETE ---\x1b[0m\r\n");
-                term.write("Type: " + data.token + "\r\n");
-                term.write("The script is running inside the instance.\r\n");
-                term.write("Check results at https://ks-ssh.pages.dev\r\n");
-            } else {
-                term.write("\r\n\x1b[1;31m--- SETUP FAILED ---\x1b[0m\r\n" + data.error + "\r\n");
-            }
-        } catch (e) {
-            term.write("\r\n\x1b[1;31m--- ERROR ---\x1b[0m\r\n" + e.message + "\r\n");
-        }
-    });
-}
-
-function getTerminal(name) {
-    if (terminals[name]) return terminals[name];
-
-    const t = new Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: "'Fira Code', monospace",
-        theme: {
-            background: '#0f172a',
-            foreground: '#f8fafc',
-            cursor: '#38bdf8'
-        },
-        convertEol: true
-    });
-
-    const fitAddon = new FitAddon.FitAddon();
-    t.loadAddon(fitAddon);
-
-    const terminalObj = {
-        instance: t,
-        fitAddon: fitAddon,
-        buffer: "",
-        history: [],
-        historyIndex: -1,
-        container: document.createElement('div')
-    };
-    terminalObj.container.style.width = '100%';
-    terminalObj.container.style.height = '100%';
-
-    t.open(terminalObj.container);
-    setTimeout(() => fitAddon.fit(), 50);
-
-    t.onData(e => {
-        const activeObj = terminals[name];
-        if (!activeObj) return;
-
-        switch (e) {
-            case '\u0003': // Ctrl+C
-                t.write('^C');
-                activeObj.buffer = "";
-                activeObj.historyIndex = -1;
-                t.write('\r\n\x1b[1;36mroot@ks:~# \x1b[0m');
-                break;
-            case '\r': // Enter
-                const cmd = activeObj.buffer;
-                activeObj.buffer = "";
-                activeObj.historyIndex = -1;
-                t.write('\r\n');
-                if (cmd.trim()) {
-                    activeObj.history.unshift(cmd);
-                    if (activeObj.history.length > 50) activeObj.history.pop();
-                    runExec(name, cmd);
-                } else {
-                    t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
-                }
-                break;
-            case '\u007F': // Backspace (DEL)
-                if (activeObj.buffer.length > 0) {
-                    activeObj.buffer = activeObj.buffer.slice(0, -1);
-                    t.write('\b \b');
-                }
-                break;
-            case '\u001b[A': // Up Arrow
-                if (activeObj.historyIndex < activeObj.history.length - 1) {
-                    activeObj.historyIndex++;
-                    const hCmd = activeObj.history[activeObj.historyIndex];
-                    // Clear current line
-                    for (let i = 0; i < activeObj.buffer.length; i++) t.write('\b \b');
-                    activeObj.buffer = hCmd;
-                    t.write(hCmd);
-                }
-                break;
-            case '\u001b[B': // Down Arrow
-                if (activeObj.historyIndex >= 0) {
-                    activeObj.historyIndex--;
-                    // Clear current line
-                    for (let i = 0; i < activeObj.buffer.length; i++) t.write('\b \b');
-                    if (activeObj.historyIndex >= 0) {
-                        const hCmd = activeObj.history[activeObj.historyIndex];
-                        activeObj.buffer = hCmd;
-                        t.write(hCmd);
-                    } else {
-                        activeObj.buffer = "";
-                    }
-                }
-                break;
-            default:
-                if (e >= String.fromCharCode(0x20) && e <= String.fromCharCode(0x7E) || e >= '\u00a0') {
-                    activeObj.buffer += e;
-                    t.write(e);
-                }
-        }
-    });
-
-    terminals[name] = terminalObj;
-    return terminalObj;
-}
-
-function openExec(name) {
-    currentTermName = name;
-    const termObj = getTerminal(name);
-
-    document.getElementById('exec-title').innerText = "Terminal: " + name;
-
-    const mainContainer = document.getElementById('terminal-container');
-    mainContainer.innerHTML = '';
-    mainContainer.appendChild(termObj.container);
-
-    showTab('exec');
-
-    // Ensure terminal fits the new visible container
-    setTimeout(() => termObj.fitAddon.fit(), 100);
-
-    // If it's a fresh terminal, show prompt and run whoami
-    if (termObj.instance.rows === 0 || termObj.instance.buffer.active.length <= 1) {
-        termObj.instance.write('\x1b[1;36mroot@ks:~# \x1b[0m');
-        runExec(name, "whoami", true);
-    }
-}
-
-window.addEventListener('resize', () => {
-    if (currentTermName && terminals[currentTermName]) {
-        terminals[currentTermName].fitAddon.fit();
-    }
-});
-
-async function runExec(name, cmd, isInit = false) {
-    // Fallback to currentTermName if name not provided (useful for tests)
-    if (!name) name = currentTermName;
-    const termObj = terminals[name];
-    if (!termObj) {
-        console.error("Terminal not found for:", name);
-        return;
-    }
-    const t = termObj.instance;
-
-    try {
-        const res = await fetch(`/api/v1/exec/${name}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: cmd })
-        });
-        const data = await res.json();
-
-        if (isInit) {
-            if (data.output && data.output.trim()) {
-                t.clear();
-                const formatted = data.output.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
-                t.write(formatted.trim() + "\r\n");
-                t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
-            }
-        } else {
-            if (data.output) {
-                // Ensure we have a clean line if there was partial output
-                const formatted = data.output.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
-                t.write(formatted.trim() + "\r\n");
-            }
-            if (data.error) t.write(`\x1b[1;31mERROR: ${data.error}\x1b[0m\r\n`);
-            t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
-        }
-    } catch (e) {
-        if (!isInit) {
-            t.write(`\x1b[1;31mFETCH FAILED: ${e.message}\x1b[0m\r\n`);
-            t.write('\x1b[1;36mroot@ks:~# \x1b[0m');
-        }
-    }
-}
-
-// Global exposure for Playwright
-window.runExec = runExec;
-
 async function fetchImages(animate = false) {
     const res = await fetch('/api/v1/images');
     allImages = await res.json();
     const list = document.getElementById('image-list');
+    if (!list) return;
     list.innerHTML = allImages.map(img => `
         <div class="card ${animate ? 'animate-in' : ''}" style="padding:20px;">
             <div style="display:flex; align-items:center; gap:15px; margin-bottom:16px;">
@@ -714,21 +513,27 @@ function initCharts(m) {
         options: { animation: false, scales: { y: { min: 0, max: 100 } } }
     });
 
-    const ctxRam = document.getElementById('ramChart').getContext('2d');
+    const ramCanvas = document.getElementById('ramChart');
+    if (!ramCanvas) return;
+    const ctxRam = ramCanvas.getContext('2d');
     charts.ram = new Chart(ctxRam, {
         type: 'doughnut',
         data: { labels: ['Used', 'Free'], datasets: [{ data: [m.mem_used, m.mem_total - m.mem_used], backgroundColor: ['#673de6', '#f3f4f6'] }] },
         options: { animation: false }
     });
 
-    const ctxDisk = document.getElementById('diskChart').getContext('2d');
+    const diskCanvas = document.getElementById('diskChart');
+    if (!diskCanvas) return;
+    const ctxDisk = diskCanvas.getContext('2d');
     charts.disk = new Chart(ctxDisk, {
         type: 'pie',
         data: { labels: ['Used', 'Free'], datasets: [{ data: [m.disk_used, m.disk_total - m.disk_used], backgroundColor: ['#ef4444', '#f3f4f6'] }] },
         options: { animation: false }
     });
 
-    const ctxNet = document.getElementById('netChart').getContext('2d');
+    const netCanvas = document.getElementById('netChart');
+    if (!netCanvas) return;
+    const ctxNet = netCanvas.getContext('2d');
     charts.net = new Chart(ctxNet, {
         type: 'line',
         data: { labels: Array(10).fill(''), datasets: [
@@ -741,6 +546,7 @@ function initCharts(m) {
 }
 
 function updateCharts(m) {
+    if (!charts.cpu || !charts.ram || !charts.disk || !charts.net) return;
     // Update CPU
     charts.cpu.data.datasets[0].data.push(m.cpu_usage);
     charts.cpu.data.datasets[0].data.shift();
@@ -785,16 +591,19 @@ async function addImage() {
         url: document.getElementById('img-url').value,
         type: document.getElementById('img-type').value
     };
-    const res = await fetch('/api/v1/images', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    card.removeChild(overlay);
-    if (res.ok) {
-        showTab('images');
-        fetchImages();
-    } else alert("Error adding image");
+    try {
+        const res = await fetch('/api/v1/images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (res.ok) {
+            showTab('images');
+            fetchImages();
+        } else alert("Error adding image");
+    } finally {
+        card.removeChild(overlay);
+    }
 }
 
 async function removeImage(name) {
@@ -828,6 +637,7 @@ async function fetchUsers(animate = false) {
     const res = await fetch('/api/v1/users');
     const data = await res.json();
     const list = document.getElementById('user-list');
+    if (!list) return;
     list.innerHTML = data.map(u => `
         <div class="card ${animate ? 'animate-in' : ''}" style="padding:20px;">
             <div style="display:flex; align-items:center; gap:15px; margin-bottom:16px;">
@@ -876,6 +686,7 @@ async function fetchLogs(animate = false) {
     const res = await fetch('/api/v1/logs');
     const data = await res.json();
     const list = document.getElementById('log-list');
+    if (!list) return;
     list.innerHTML = data.map(l => {
         const actionHtml = typeof marked !== 'undefined' ? marked.parse(l.action).trim() : l.action;
         return `

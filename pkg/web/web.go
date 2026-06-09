@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-//go:embed index.html style.css app.js
+//go:embed index.html style.css app.js components/*.html
 var Assets embed.FS
 
 // Handler returns the file server handler for embedded assets.
